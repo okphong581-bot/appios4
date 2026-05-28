@@ -23,7 +23,74 @@ jobs:
           # 1. Create base flutter project
           flutter create .
           
-          # 2. Inject AppDelegate.swift with Floating Menu Code
+          # 1.5 Inject Flutter UI (main.dart)
+          cat << 'EOF' > lib/main.dart
+          import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
+
+          void main() {
+            runApp(const MyApp());
+          }
+
+          class MyApp extends StatelessWidget {
+            const MyApp({super.key});
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                title: 'VIP Hack',
+                theme: ThemeData.dark(),
+                home: const HomeScreen(),
+              );
+            }
+          }
+
+          class HomeScreen extends StatelessWidget {
+            const HomeScreen({super.key});
+            static const platform = MethodChannel('com.mod.menu/hack');
+
+            Future<void> _startHack() async {
+              try {
+                await platform.invokeMethod('showMenu');
+              } catch (e) {
+                print(e);
+              }
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                backgroundColor: Colors.black,
+                appBar: AppBar(
+                  title: const Text('TrollStore VIP Mod', style: TextStyle(color: Colors.green)),
+                  backgroundColor: Colors.black,
+                  centerTitle: true,
+                ),
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.security, size: 100, color: Colors.green),
+                      const SizedBox(height: 30),
+                      ElevatedButton(
+                        onPressed: _startHack,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        ),
+                        child: const Text('BẬT MENU NỔI', style: TextStyle(fontSize: 22, color: Colors.black, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text('Bấm nút trên để cấp quyền Root\nvà hiển thị Menu Nổi.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+          EOF
+
+          # 2. Inject AppDelegate.swift with MethodChannel
           cat << 'EOF' > ios/Runner/AppDelegate.swift
           import UIKit
           import Flutter
@@ -39,22 +106,29 @@ jobs:
             ) -> Bool {
               GeneratedPluginRegistrant.register(with: self)
               
-              // Đợi 3 giây để Flutter nạp xong giao diện mới gọi Menu Nổi
-              DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                  self.setupFloatingMenu()
-              }
+              // Thiết lập cầu nối (MethodChannel) để nhận lệnh từ nút bấm Flutter
+              let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
+              let hackChannel = FlutterMethodChannel(name: "com.mod.menu/hack", binaryMessenger: controller.binaryMessenger)
+              
+              hackChannel.setMethodCallHandler({
+                (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
+                if call.method == "showMenu" {
+                    self.setupFloatingMenu()
+                    result("Success")
+                } else {
+                    result(FlutterMethodNotImplemented)
+                }
+              })
               
               return super.application(application, didFinishLaunchingWithOptions: launchOptions)
             }
             
             func setupFloatingMenu() {
-                if #available(iOS 13.0, *) {
-                    // Cực kỳ quan trọng: Phải gắn UIWindow vào WindowScene trên iOS mới để chống Crash
-                    guard let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else {
-                        return
-                    }
+                // Chỉ tạo Menu khi có lệnh từ người dùng
+                DispatchQueue.main.async {
+                    if self.overlayWindow != nil { return } // Tránh tạo nhiều lần
                     
-                    let overlay = UIWindow(windowScene: windowScene)
+                    let overlay = UIWindow(frame: CGRect(x: 20, y: 150, width: 60, height: 60))
                     overlay.windowLevel = UIWindow.Level.statusBar + 1000
                     overlay.backgroundColor = .clear
                     
@@ -63,7 +137,7 @@ jobs:
                     overlay.rootViewController = vc
                     
                     // Nút bấm tròn giả lập
-                    let btn = UIButton(frame: CGRect(x: 20, y: 150, width: 60, height: 60))
+                    let btn = UIButton(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
                     btn.backgroundColor = .green
                     btn.layer.cornerRadius = 30
                     btn.layer.borderWidth = 2
@@ -72,12 +146,12 @@ jobs:
                     btn.setTitleColor(.black, for: .normal)
                     btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 30)
                     
-                    let pan = UIPanGestureRecognizer(target: self, action: #selector(panGesture(_:)))
+                    let pan = UIPanGestureRecognizer(target: self, action: #selector(self.panGesture(_:)))
                     btn.addGestureRecognizer(pan)
                     
                     vc.view.addSubview(btn)
                     
-                    // Hiển thị Window
+                    // Hiển thị Window đè hệ thống
                     overlay.makeKeyAndVisible()
                     self.overlayWindow = overlay
                 }

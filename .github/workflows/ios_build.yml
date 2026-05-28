@@ -212,23 +212,22 @@ jobs:
           # Force build with Xcode directly to get the .app output
           xcodebuild build -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" EXPANDED_CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" SYMROOT=$PWD/../build/ios > xcodebuild_log.txt 2>&1 || (tail -n 200 xcodebuild_log.txt && exit 1)
 
-      - name: Inject Entitlements & Package IPA
+      - name: Inject Entitlements & Package TIPA
         run: |
-          # Install ldid to inject entitlements
-          brew install ldid
-          
-          mkdir Payload
+          mkdir -p Payload
           # Copy the compiled .app
           cp -r build/ios/Release-iphoneos/Runner.app Payload/
           
-          # Inject TrollStore Entitlements into the binary
-          ldid -Sentitlements.plist Payload/Runner.app/Runner
+          # Cực kỳ quan trọng: Flutter có chứa các Frameworks (như Flutter.framework). 
+          # Nếu không sign toàn bộ thư mục bằng ad-hoc, iOS sẽ crash ngay lúc mở app vì lỗi chữ ký (Code Signature Invalid).
+          # Sử dụng công cụ codesign có sẵn của macOS với cờ --deep để ký toàn bộ App và Frameworks bằng quyền Root TrollStore.
+          codesign -s "-" -f --entitlements entitlements.plist --deep Payload/Runner.app
           
-          # Zip into .ipa format
-          zip -r app.ipa Payload
+          # Đổi sang đuôi .tipa chuẩn TrollStore để đảm bảo TrollStore không nhầm lẫn
+          zip -r ModMenu.tipa Payload
 
-      - name: Upload IPA Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ModMenu-IPA
-          path: app.ipa
+          name: ModMenu-TrollStore
+          path: ModMenu.tipa

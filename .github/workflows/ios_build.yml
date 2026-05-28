@@ -1,4 +1,4 @@
-name: Build TrollStore Menu IPA
+name: Build In-App Menu IPA
 
 on:
   push:
@@ -21,15 +21,13 @@ jobs:
         with:
           channel: 'stable'
           
-      - name: Create Flutter Project & Inject Native Code
+      - name: Create Flutter Project & Inject UI
         run: |
-          # 1. Create base flutter project
           flutter create .
           
-          # 1.5 Inject Flutter UI (main.dart)
+          # Inject Flutter UI with Built-in Draggable Floating Menu
           cat << 'EOF' > lib/main.dart
           import 'package:flutter/material.dart';
-          import 'package:flutter/services.dart';
 
           void main() {
             runApp(const MyApp());
@@ -40,194 +38,183 @@ jobs:
             @override
             Widget build(BuildContext context) {
               return MaterialApp(
-                title: 'VIP Hack',
+                title: 'In-App Mod Menu',
+                debugShowCheckedModeBanner: false,
                 theme: ThemeData.dark(),
-                home: const HomeScreen(),
+                home: const ModMenuOverlay(
+                  child: MainAppScreen(),
+                ),
               );
             }
           }
 
-          class HomeScreen extends StatelessWidget {
-            const HomeScreen({super.key});
-            static const platform = MethodChannel('com.mod.menu/hack');
-
-            Future<void> _startHack() async {
-              try {
-                await platform.invokeMethod('showMenu');
-              } catch (e) {
-                print(e);
-              }
-            }
-
+          class MainAppScreen extends StatelessWidget {
+            const MainAppScreen({super.key});
             @override
             Widget build(BuildContext context) {
               return Scaffold(
                 backgroundColor: Colors.black,
                 appBar: AppBar(
-                  title: const Text('TrollStore VIP Mod', style: TextStyle(color: Colors.green)),
-                  backgroundColor: Colors.black,
+                  title: const Text('Ứng dụng chính', style: TextStyle(color: Colors.green)),
+                  backgroundColor: Colors.grey[900],
                   centerTitle: true,
                 ),
                 body: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.security, size: 100, color: Colors.green),
-                      const SizedBox(height: 30),
-                      ElevatedButton(
-                        onPressed: _startHack,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        ),
-                        child: const Text('BẬT MENU NỔI', style: TextStyle(fontSize: 22, color: Colors.black, fontWeight: FontWeight.bold)),
+                    children: const [
+                      Icon(Icons.gamepad, size: 100, color: Colors.white54),
+                      SizedBox(height: 20),
+                      Text(
+                        'Đây là ứng dụng bình thường.\nMenu  đã được gắn chết bên trong App!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70, fontSize: 18),
                       ),
-                      const SizedBox(height: 20),
-                      const Text('Bấm nút trên để cấp quyền Root\nvà hiển thị Menu Nổi.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
                     ],
                   ),
                 ),
               );
             }
           }
-          EOF
 
-          # 2. Inject AppDelegate.swift with MethodChannel
-          cat << 'EOF' > ios/Runner/AppDelegate.swift
-          import UIKit
-          import Flutter
+          class ModMenuOverlay extends StatefulWidget {
+            final Widget child;
+            const ModMenuOverlay({super.key, required this.child});
 
-          @UIApplicationMain
-          @objc class AppDelegate: FlutterAppDelegate {
-            
-            var overlayWindow: UIWindow?
+            @override
+            State<ModMenuOverlay> createState() => _ModMenuOverlayState();
+          }
 
-            override func application(
-              _ application: UIApplication,
-              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-            ) -> Bool {
-              GeneratedPluginRegistrant.register(with: self)
-              
-              // Thiết lập cầu nối (MethodChannel) để nhận lệnh từ nút bấm Flutter
-              let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
-              let hackChannel = FlutterMethodChannel(name: "com.mod.menu/hack", binaryMessenger: controller.binaryMessenger)
-              
-              hackChannel.setMethodCallHandler({
-                (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
-                if call.method == "showMenu" {
-                    self.setupFloatingMenu()
-                    result("Success")
-                } else {
-                    result(FlutterMethodNotImplemented)
-                }
-              })
-              
-              return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+          class _ModMenuOverlayState extends State<ModMenuOverlay> {
+            Offset position = const Offset(20, 150);
+            bool isMenuOpen = false;
+
+            @override
+            Widget build(BuildContext context) {
+              return Stack(
+                children: [
+                  widget.child,
+                  Positioned(
+                    left: position.dx,
+                    top: position.dy,
+                    child: GestureDetector(
+                      onPanUpdate: (details) {
+                        setState(() {
+                          position += details.delta;
+                        });
+                      },
+                      child: Material(
+                        color: Colors.transparent,
+                        child: isMenuOpen ? _buildExpandedMenu() : _buildFloatingButton(),
+                      ),
+                    ),
+                  ),
+                ],
+              );
             }
-            
-            func setupFloatingMenu() {
-                // Chỉ tạo Menu khi có lệnh từ người dùng
-                DispatchQueue.main.async {
-                    if self.overlayWindow != nil { return } // Tránh tạo nhiều lần
-                    
-                    let overlay = UIWindow(frame: CGRect(x: 20, y: 150, width: 60, height: 60))
-                    overlay.windowLevel = UIWindow.Level.statusBar + 1000
-                    overlay.backgroundColor = .clear
-                    
-                    let vc = UIViewController()
-                    vc.view.backgroundColor = .clear
-                    overlay.rootViewController = vc
-                    
-                    // Nút bấm tròn giả lập
-                    let btn = UIButton(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
-                    btn.backgroundColor = .green
-                    btn.layer.cornerRadius = 30
-                    btn.layer.borderWidth = 2
-                    btn.layer.borderColor = UIColor.white.cgColor
-                    btn.setTitle("", for: .normal)
-                    btn.setTitleColor(.black, for: .normal)
-                    btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 30)
-                    
-                    let pan = UIPanGestureRecognizer(target: self, action: #selector(self.panGesture(_:)))
-                    btn.addGestureRecognizer(pan)
-                    
-                    vc.view.addSubview(btn)
-                    
-                    // Hiển thị Window đè hệ thống
-                    overlay.makeKeyAndVisible()
-                    self.overlayWindow = overlay
-                }
+
+            Widget _buildFloatingButton() {
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    isMenuOpen = true;
+                  });
+                },
+                child: Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  child: const Center(
+                    child: Text('', style: TextStyle(fontSize: 30, color: Colors.black)),
+                  ),
+                ),
+              );
             }
-            
-            @objc func panGesture(_ gesture: UIPanGestureRecognizer) {
-                guard let window = self.overlayWindow else { return }
-                let translation = gesture.translation(in: nil)
-                window.center = CGPoint(x: window.center.x + translation.x, y: window.center.y + translation.y)
-                gesture.setTranslation(.zero, in: nil)
+
+            Widget _buildExpandedMenu() {
+              return Container(
+                width: 250,
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.green, width: 2),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black54, blurRadius: 20),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Mod Menu VIP', style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold)),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.red),
+                          onPressed: () {
+                            setState(() {
+                              isMenuOpen = false;
+                            });
+                          },
+                        )
+                      ],
+                    ),
+                    const Divider(color: Colors.white24),
+                    ListTile(
+                      leading: const Icon(Icons.security, color: Colors.blue),
+                      title: const Text('Bật Hack VIP', style: TextStyle(color: Colors.white, fontSize: 14)),
+                      trailing: Switch(value: true, activeColor: Colors.green, onChanged: (v){}),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.speed, color: Colors.orange),
+                      title: const Text('Tốc Độ x2', style: TextStyle(color: Colors.white, fontSize: 14)),
+                      trailing: Switch(value: false, activeColor: Colors.green, onChanged: (v){}),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+              );
             }
           }
           EOF
-          
-      - name: Push Full Structure to Github Repository
+
+      - name: Push Full Structure to Github
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Initialize Full Flutter Project Structure [skip ci]" || true
+          git commit -m "Switch to In-App Floating Menu [skip ci]" || true
           git push origin main || true
-          
-      - name: Create TrollStore Entitlements
-        run: |
-          cat << 'EOF' > entitlements.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>com.apple.private.security.no-sandbox</key>
-              <true/>
-              <key>com.apple.springboard.accessibility-window-hosting</key>
-              <true/>
-              <key>run-unsigned-code</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
 
-      - name: Build iOS App (No Codesign)
+      - name: Build Standard iOS App
         run: |
           cd ios
-          # Disable codesign in Xcode
+          # Disable codesign in Xcode completely
           sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj || true
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj || true
           
           flutter build ios --release --no-codesign || true
           
-          # Force build with Xcode directly to get the .app output
+          # Force build with Xcode directly to get the .app output without code signing
           xcodebuild build -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" EXPANDED_CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" SYMROOT=$PWD/../build/ios > xcodebuild_log.txt 2>&1 || (tail -n 200 xcodebuild_log.txt && exit 1)
 
-      - name: Inject Entitlements & Package TIPA
+      - name: Package TIPA
         run: |
           mkdir -p Payload
-          # Copy the compiled .app
           cp -r build/ios/Release-iphoneos/Runner.app Payload/
-          
-          # QUAN TRỌNG: Lỗi văng cũ là do tiêm Entitlements vào cả Frameworks (Flutter.framework).
-          # Cách giải quyết đúng: 
-          # 1. Ký các Framework bằng chữ ký trắng (Không Entitlements)
-          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign -s "-" -f {} \; || true
-          find Payload/Runner.app/Frameworks -type f -name "*.dylib" -exec codesign -s "-" -f {} \; || true
-          
-          # 2. Tiêm Entitlements DUY NHẤT vào file thực thi chính của App
-          codesign -s "-" -f --entitlements entitlements.plist Payload/Runner.app/Runner
-          
-          # 3. Ký đè lại thư mục App một lần nữa (Không ép Entitlements xuống framework)
-          codesign -s "-" -f Payload/Runner.app
-          
-          zip -r ModMenu.tipa Payload
+          zip -r ModMenu-InApp.tipa Payload
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ModMenu-TrollStore
-          path: ModMenu.tipa
+          name: ModMenu-InApp
+          path: ModMenu-InApp.tipa

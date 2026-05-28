@@ -34,10 +34,7 @@ jobs:
             
             var floatingButtonWindow: UIWindow?
             var fullMenuWindow: UIWindow?
-            
-            // Audio Engine để giữ App sống mãi mãi khi thoát ra Home
-            let engine = AVAudioEngine()
-            let playerNode = AVAudioPlayerNode()
+            var audioPlayer: AVAudioPlayer?
 
             override func application(
               _ application: UIApplication,
@@ -45,50 +42,39 @@ jobs:
             ) -> Bool {
               GeneratedPluginRegistrant.register(with: self)
               
-              keepAppAliveInBackground()
+              // Khởi chạy âm thanh tĩnh lặng để giữ app chạy ngầm
+              DispatchQueue.global(qos: .background).async {
+                  self.startSilentAudio()
+              }
               
-              DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                  let alert = UIAlertController(title: "Thông Báo", message: "Chào Bạn", preferredStyle: .alert)
-                  alert.addAction(UIAlertAction(title: "OK", style: .default, handler: { _ in
-                      self.setupFloatingMenu()
-                  }))
-                  
-                  if let rootVC = self.window?.rootViewController {
-                      rootVC.present(alert, animated: true, completion: nil)
-                  } else {
-                      self.setupFloatingMenu()
-                  }
+              // Đợi 2 giây cho Flutter load xong rồi mới bật Menu Nổi
+              DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                  self.setupFloatingMenu()
               }
               
               return super.application(application, didFinishLaunchingWithOptions: launchOptions)
             }
             
-            func keepAppAliveInBackground() {
+            func startSilentAudio() {
+                guard let url = Bundle.main.url(forResource: "silence", withExtension: "wav") else {
+                    // Nếu không có file âm thanh, tạo một AudioSession đơn giản
+                    do {
+                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                        try AVAudioSession.sharedInstance().setActive(true)
+                    } catch {}
+                    return
+                }
                 do {
                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
                     try AVAudioSession.sharedInstance().setActive(true)
-                } catch {
-                    print("Lỗi AudioSession: \(error)")
-                }
-                
-                guard let format = AVAudioFormat(standardFormatWithSampleRate: 44100.0, channels: 1),
-                      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 100) else { return }
-                buffer.frameLength = 100
-                
-                engine.attach(playerNode)
-                engine.connect(playerNode, to: engine.mainMixerNode, format: format)
-                
-                do {
-                    try engine.start()
-                    playerNode.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
-                    playerNode.play()
-                } catch {
-                    print("Lỗi khởi động Engine: \(error)")
-                }
+                    audioPlayer = try AVAudioPlayer(contentsOf: url)
+                    audioPlayer?.numberOfLoops = -1
+                    audioPlayer?.volume = 0.0
+                    audioPlayer?.play()
+                } catch {}
             }
             
             func setupFloatingMenu() {
-                // 1. Tạo nút nổi (Floating Button) nhỏ nhắn
                 let btnWindow = UIWindow(frame: CGRect(x: 20, y: 150, width: 50, height: 50))
                 btnWindow.windowLevel = UIWindow.Level.statusBar + 1000
                 btnWindow.backgroundColor = .clear
@@ -114,7 +100,6 @@ jobs:
                 btnWindow.makeKeyAndVisible()
                 self.floatingButtonWindow = btnWindow
                 
-                // 2. Tạo Full Menu ẩn sẵn
                 let menuWindow = UIWindow(frame: CGRect(x: 50, y: 200, width: 280, height: 320))
                 menuWindow.windowLevel = UIWindow.Level.statusBar + 1001
                 menuWindow.backgroundColor = .clear
@@ -205,6 +190,11 @@ jobs:
           }
           EOF
           
+          # Add a silent wav file
+          cd ios/Runner
+          touch silence.wav
+          cd ../..
+          
           # 3. Add UIBackgroundModes to Info.plist to keep app alive when exiting
           cd ios/Runner
           plutil -insert UIBackgroundModes -array Info.plist
@@ -221,6 +211,8 @@ jobs:
               <key>com.apple.private.security.no-sandbox</key>
               <true/>
               <key>com.apple.springboard.accessibility-window-hosting</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppDataContainers</key>
               <true/>
               <key>run-unsigned-code</key>
               <true/>
@@ -244,7 +236,7 @@ jobs:
           # Force build with Xcode directly to get the .app output
           xcodebuild build -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" EXPANDED_CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" SYMROOT=$PWD/../build/ios > xcodebuild_log.txt 2>&1 || (tail -n 200 xcodebuild_log.txt && exit 1)
 
-      - name: Inject Entitlements & Package TIPA
+      - name: Inject Entitlements & Package IPA
         run: |
           # Install ldid to inject entitlements
           brew install ldid
@@ -256,11 +248,11 @@ jobs:
           # Inject TrollStore Entitlements into the binary
           ldid -Sentitlements.plist Payload/Runner.app/Runner
           
-          # Zip into .tipa format
-          zip -r TrollMenu.tipa Payload
+          # Zip into .ipa format
+          zip -r app.ipa Payload
 
-      - name: Upload TIPA Artifact
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TrollMenu-TrollStore
-          path: TrollMenu.tipa
+          name: ModMenu-IPA
+          path: app.ipa

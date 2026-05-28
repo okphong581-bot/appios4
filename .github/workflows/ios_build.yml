@@ -63,6 +63,10 @@ jobs:
                 btnWindow.windowLevel = UIWindow.Level.statusBar + 1000
                 btnWindow.backgroundColor = .clear
                 
+                let btnVC = UIViewController()
+                btnVC.view.backgroundColor = .clear
+                btnWindow.rootViewController = btnVC
+                
                 let iconBtn = UIButton(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
                 iconBtn.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.9)
                 iconBtn.layer.cornerRadius = 25
@@ -74,37 +78,41 @@ jobs:
                 iconBtn.addTarget(self, action: #selector(toggleFullMenu), for: .touchUpInside)
                 
                 let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleBtnPan(_:)))
-                iconBtn.addGestureRecognizer(panGesture)
+                btnVC.view.addGestureRecognizer(panGesture)
                 
-                btnWindow.addSubview(iconBtn)
+                btnVC.view.addSubview(iconBtn)
                 btnWindow.makeKeyAndVisible()
                 self.floatingButtonWindow = btnWindow
                 
                 // 2. Tạo Full Menu ẩn sẵn
                 let menuWindow = UIWindow(frame: CGRect(x: 50, y: 200, width: 280, height: 320))
                 menuWindow.windowLevel = UIWindow.Level.statusBar + 1001
-                menuWindow.backgroundColor = UIColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 0.95)
-                menuWindow.layer.cornerRadius = 15
-                menuWindow.layer.borderWidth = 1
-                menuWindow.layer.borderColor = UIColor.green.cgColor
+                menuWindow.backgroundColor = .clear
+                
+                let menuVC = UIViewController()
+                menuVC.view.backgroundColor = UIColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 0.95)
+                menuVC.view.layer.cornerRadius = 15
+                menuVC.view.layer.borderWidth = 1
+                menuVC.view.layer.borderColor = UIColor.green.cgColor
+                menuWindow.rootViewController = menuVC
                 
                 let titleLabel = UILabel(frame: CGRect(x: 0, y: 10, width: 280, height: 30))
                 titleLabel.text = "VIP MOD MENU"
                 titleLabel.textColor = .green
                 titleLabel.textAlignment = .center
                 titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
-                menuWindow.addSubview(titleLabel)
+                menuVC.view.addSubview(titleLabel)
                 
                 let closeBtn = UIButton(frame: CGRect(x: 240, y: 10, width: 30, height: 30))
                 closeBtn.setTitle("—", for: .normal)
                 closeBtn.setTitleColor(.red, for: .normal)
                 closeBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 24)
                 closeBtn.addTarget(self, action: #selector(toggleFullMenu), for: .touchUpInside)
-                menuWindow.addSubview(closeBtn)
+                menuVC.view.addSubview(closeBtn)
                 
-                addToggle(to: menuWindow, yPos: 60, title: "🎯 Aimbot Lock")
-                addToggle(to: menuWindow, yPos: 110, title: "👁️ Wallhack ESP")
-                addToggle(to: menuWindow, yPos: 160, title: "💀 Auto Headshot")
+                addToggle(to: menuVC.view, yPos: 60, title: "🎯 Aimbot Lock")
+                addToggle(to: menuVC.view, yPos: 110, title: "👁️ Wallhack ESP")
+                addToggle(to: menuVC.view, yPos: 160, title: "💀 Auto Headshot")
                 
                 let actionBtn = UIButton(frame: CGRect(x: 40, y: 240, width: 200, height: 45))
                 actionBtn.backgroundColor = .green
@@ -113,25 +121,25 @@ jobs:
                 actionBtn.setTitleColor(.black, for: .normal)
                 actionBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
                 actionBtn.addTarget(self, action: #selector(btnClicked), for: .touchUpInside)
-                menuWindow.addSubview(actionBtn)
+                menuVC.view.addSubview(actionBtn)
                 
                 let menuPan = UIPanGestureRecognizer(target: self, action: #selector(handleMenuPan(_:)))
-                menuWindow.addGestureRecognizer(menuPan)
+                menuVC.view.addGestureRecognizer(menuPan)
                 
                 menuWindow.isHidden = true
                 self.fullMenuWindow = menuWindow
             }
             
-            func addToggle(to window: UIWindow, yPos: CGFloat, title: String) {
+            func addToggle(to view: UIView, yPos: CGFloat, title: String) {
                 let label = UILabel(frame: CGRect(x: 20, y: yPos, width: 180, height: 30))
                 label.text = title
                 label.textColor = .white
                 label.font = UIFont.systemFont(ofSize: 16)
-                window.addSubview(label)
+                view.addSubview(label)
                 
                 let toggle = UISwitch(frame: CGRect(x: 210, y: yPos, width: 50, height: 30))
                 toggle.onTintColor = .green
-                window.addSubview(toggle)
+                view.addSubview(toggle)
             }
             
             @objc func toggleFullMenu() {
@@ -148,25 +156,21 @@ jobs:
             @objc func btnClicked() {
                 let alert = UIAlertController(title: "Thành Công", message: "Đã inject hệ thống thành công!", preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
-                
-                if self.fullMenuWindow?.rootViewController == nil {
-                    self.fullMenuWindow?.rootViewController = UIViewController()
-                }
                 self.fullMenuWindow?.rootViewController?.present(alert, animated: true, completion: nil)
             }
             
             @objc func handleBtnPan(_ gesture: UIPanGestureRecognizer) {
                 guard let window = self.floatingButtonWindow else { return }
-                let translation = gesture.translation(in: window)
+                let translation = gesture.translation(in: nil)
                 window.center = CGPoint(x: window.center.x + translation.x, y: window.center.y + translation.y)
-                gesture.setTranslation(.zero, in: window)
+                gesture.setTranslation(.zero, in: nil)
             }
             
             @objc func handleMenuPan(_ gesture: UIPanGestureRecognizer) {
                 guard let window = self.fullMenuWindow else { return }
-                let translation = gesture.translation(in: window)
+                let translation = gesture.translation(in: nil)
                 window.center = CGPoint(x: window.center.x + translation.x, y: window.center.y + translation.y)
-                gesture.setTranslation(.zero, in: window)
+                gesture.setTranslation(.zero, in: nil)
             }
           }
           EOF

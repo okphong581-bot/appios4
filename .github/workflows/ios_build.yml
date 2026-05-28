@@ -197,29 +197,25 @@ jobs:
 
       - name: Build Standard iOS App
         run: |
-          # Vô hiệu hóa Code Signing trong project Xcode để tránh lỗi Build trên Github Actions
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ios/Runner.xcodeproj/project.pbxproj || true
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ios/Runner.xcodeproj/project.pbxproj || true
+          # Xóa sạch cache cũ để tránh lỗi hỏng cấu trúc
+          flutter clean
+          flutter pub get
           
-          # Dùng lệnh chuẩn của Flutter để build (Không dùng xcodebuild thủ công gây hỏng framework)
+          # Build bộ khung chuẩn 100% của Flutter (Không can thiệp bậy bạ vào mã Xcode)
           flutter build ios --release --no-codesign
 
       - name: Package TIPA
         run: |
           mkdir -p Payload
-          # Copy bộ nguồn CHUẨN của Flutter
+          # Copy trực tiếp bộ nguồn CHUẨN từ máy ảo Xcode
           cp -r build/ios/iphoneos/Runner.app Payload/
           
-          # Để App không bị văng trên TrollStore, bắt buộc phải Ký Trắng (Ad-hoc Sign) toàn bộ Frameworks
-          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign -s "-" -f {} \; || true
-          find Payload/Runner.app/Frameworks -type f -name "*.dylib" -exec codesign -s "-" -f {} \; || true
-          codesign -s "-" -f Payload/Runner.app/Runner || true
-          codesign -s "-" -f Payload/Runner.app || true
-          
-          zip -r ModMenu-InApp.tipa Payload
+          # Đóng gói trực tiếp thành TIPA, để TrollStore TỰ ĐỘNG xử lý Code Sign khi cài đặt!
+          # (Việc tự ý dùng lệnh codesign trên Github Actions đã làm hỏng file App)
+          zip -r ModMenu.tipa Payload
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ModMenu-InApp
-          path: ModMenu-InApp.tipa
+          name: ModMenu-TrollStore
+          path: ModMenu.tipa

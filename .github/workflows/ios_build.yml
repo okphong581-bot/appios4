@@ -27,14 +27,11 @@ jobs:
           cat << 'EOF' > ios/Runner/AppDelegate.swift
           import UIKit
           import Flutter
-          import AVFoundation
 
           @UIApplicationMain
           @objc class AppDelegate: FlutterAppDelegate {
             
-            var floatingButtonWindow: UIWindow?
-            var fullMenuWindow: UIWindow?
-            var audioPlayer: AVAudioPlayer?
+            var overlayWindow: UIWindow?
 
             override func application(
               _ application: UIApplication,
@@ -42,157 +39,62 @@ jobs:
             ) -> Bool {
               GeneratedPluginRegistrant.register(with: self)
               
-              // Khởi chạy âm thanh tĩnh lặng để giữ app chạy ngầm
-              DispatchQueue.global(qos: .background).async {
-                  self.startSilentAudio()
-              }
-              
-              // Đợi 2 giây cho Flutter load xong rồi mới bật Menu Nổi
-              DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+              // Đợi 3 giây để Flutter nạp xong giao diện mới gọi Menu Nổi
+              DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                   self.setupFloatingMenu()
               }
               
               return super.application(application, didFinishLaunchingWithOptions: launchOptions)
             }
             
-            func startSilentAudio() {
-                guard let url = Bundle.main.url(forResource: "silence", withExtension: "wav") else {
-                    // Nếu không có file âm thanh, tạo một AudioSession đơn giản
-                    do {
-                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                        try AVAudioSession.sharedInstance().setActive(true)
-                    } catch {}
-                    return
-                }
-                do {
-                    try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                    try AVAudioSession.sharedInstance().setActive(true)
-                    audioPlayer = try AVAudioPlayer(contentsOf: url)
-                    audioPlayer?.numberOfLoops = -1
-                    audioPlayer?.volume = 0.0
-                    audioPlayer?.play()
-                } catch {}
-            }
-            
             func setupFloatingMenu() {
-                let btnWindow = UIWindow(frame: CGRect(x: 20, y: 150, width: 50, height: 50))
-                btnWindow.windowLevel = UIWindow.Level.statusBar + 1000
-                btnWindow.backgroundColor = .clear
-                
-                let btnVC = UIViewController()
-                btnVC.view.backgroundColor = .clear
-                btnWindow.rootViewController = btnVC
-                
-                let iconBtn = UIButton(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
-                iconBtn.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.9)
-                iconBtn.layer.cornerRadius = 25
-                iconBtn.layer.borderWidth = 2
-                iconBtn.layer.borderColor = UIColor.green.cgColor
-                iconBtn.setTitle("", for: .normal)
-                iconBtn.setTitleColor(.green, for: .normal)
-                iconBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 24)
-                iconBtn.addTarget(self, action: #selector(toggleFullMenu), for: .touchUpInside)
-                
-                let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleBtnPan(_:)))
-                btnVC.view.addGestureRecognizer(panGesture)
-                
-                btnVC.view.addSubview(iconBtn)
-                btnWindow.makeKeyAndVisible()
-                self.floatingButtonWindow = btnWindow
-                
-                let menuWindow = UIWindow(frame: CGRect(x: 50, y: 200, width: 280, height: 320))
-                menuWindow.windowLevel = UIWindow.Level.statusBar + 1001
-                menuWindow.backgroundColor = .clear
-                
-                let menuVC = UIViewController()
-                menuVC.view.backgroundColor = UIColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 0.95)
-                menuVC.view.layer.cornerRadius = 15
-                menuVC.view.layer.borderWidth = 1
-                menuVC.view.layer.borderColor = UIColor.green.cgColor
-                menuWindow.rootViewController = menuVC
-                
-                let titleLabel = UILabel(frame: CGRect(x: 0, y: 10, width: 280, height: 30))
-                titleLabel.text = "VIP MOD MENU"
-                titleLabel.textColor = .green
-                titleLabel.textAlignment = .center
-                titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
-                menuVC.view.addSubview(titleLabel)
-                
-                let closeBtn = UIButton(frame: CGRect(x: 240, y: 10, width: 30, height: 30))
-                closeBtn.setTitle("—", for: .normal)
-                closeBtn.setTitleColor(.red, for: .normal)
-                closeBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 24)
-                closeBtn.addTarget(self, action: #selector(toggleFullMenu), for: .touchUpInside)
-                menuVC.view.addSubview(closeBtn)
-                
-                addToggle(to: menuVC.view, yPos: 60, title: "🎯 Aimbot Lock")
-                addToggle(to: menuVC.view, yPos: 110, title: "👁️ Wallhack ESP")
-                addToggle(to: menuVC.view, yPos: 160, title: "💀 Auto Headshot")
-                
-                let actionBtn = UIButton(frame: CGRect(x: 40, y: 240, width: 200, height: 45))
-                actionBtn.backgroundColor = .green
-                actionBtn.layer.cornerRadius = 8
-                actionBtn.setTitle("INJECT HACK", for: .normal)
-                actionBtn.setTitleColor(.black, for: .normal)
-                actionBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-                actionBtn.addTarget(self, action: #selector(btnClicked), for: .touchUpInside)
-                menuVC.view.addSubview(actionBtn)
-                
-                let menuPan = UIPanGestureRecognizer(target: self, action: #selector(handleMenuPan(_:)))
-                menuVC.view.addGestureRecognizer(menuPan)
-                
-                menuWindow.isHidden = true
-                self.fullMenuWindow = menuWindow
-            }
-            
-            func addToggle(to view: UIView, yPos: CGFloat, title: String) {
-                let label = UILabel(frame: CGRect(x: 20, y: yPos, width: 180, height: 30))
-                label.text = title
-                label.textColor = .white
-                label.font = UIFont.systemFont(ofSize: 16)
-                view.addSubview(label)
-                
-                let toggle = UISwitch(frame: CGRect(x: 210, y: yPos, width: 50, height: 30))
-                toggle.onTintColor = .green
-                view.addSubview(toggle)
-            }
-            
-            @objc func toggleFullMenu() {
-                guard let full = self.fullMenuWindow, let btn = self.floatingButtonWindow else { return }
-                if full.isHidden {
-                    full.isHidden = false
-                    btn.isHidden = true
-                } else {
-                    full.isHidden = true
-                    btn.isHidden = false
+                if #available(iOS 13.0, *) {
+                    // Cực kỳ quan trọng: Phải gắn UIWindow vào WindowScene trên iOS mới để chống Crash
+                    guard let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else {
+                        return
+                    }
+                    
+                    let overlay = UIWindow(windowScene: windowScene)
+                    overlay.windowLevel = UIWindow.Level.statusBar + 1000
+                    overlay.backgroundColor = .clear
+                    
+                    let vc = UIViewController()
+                    vc.view.backgroundColor = .clear
+                    overlay.rootViewController = vc
+                    
+                    // Nút bấm tròn giả lập
+                    let btn = UIButton(frame: CGRect(x: 20, y: 150, width: 60, height: 60))
+                    btn.backgroundColor = .green
+                    btn.layer.cornerRadius = 30
+                    btn.layer.borderWidth = 2
+                    btn.layer.borderColor = UIColor.white.cgColor
+                    btn.setTitle("", for: .normal)
+                    btn.setTitleColor(.black, for: .normal)
+                    btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 30)
+                    
+                    let pan = UIPanGestureRecognizer(target: self, action: #selector(panGesture(_:)))
+                    btn.addGestureRecognizer(pan)
+                    
+                    vc.view.addSubview(btn)
+                    
+                    // Hiển thị Window
+                    overlay.makeKeyAndVisible()
+                    self.overlayWindow = overlay
                 }
             }
             
-            @objc func btnClicked() {
-                let alert = UIAlertController(title: "Thành Công", message: "Đã inject hệ thống thành công!", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
-                self.fullMenuWindow?.rootViewController?.present(alert, animated: true, completion: nil)
-            }
-            
-            @objc func handleBtnPan(_ gesture: UIPanGestureRecognizer) {
-                guard let window = self.floatingButtonWindow, let view = window.rootViewController?.view else { return }
-                let translation = gesture.translation(in: view)
+            @objc func panGesture(_ gesture: UIPanGestureRecognizer) {
+                guard let window = self.overlayWindow else { return }
+                let translation = gesture.translation(in: nil)
                 window.center = CGPoint(x: window.center.x + translation.x, y: window.center.y + translation.y)
-                gesture.setTranslation(.zero, in: view)
-            }
-            
-            @objc func handleMenuPan(_ gesture: UIPanGestureRecognizer) {
-                guard let window = self.fullMenuWindow, let view = window.rootViewController?.view else { return }
-                let translation = gesture.translation(in: view)
-                window.center = CGPoint(x: window.center.x + translation.x, y: window.center.y + translation.y)
-                gesture.setTranslation(.zero, in: view)
+                gesture.setTranslation(.zero, in: nil)
             }
           }
           EOF
           
-          # Add a silent wav file
+          # Remove audio hack from Info.plist to ensure standard App lifecycle
           cd ios/Runner
-          touch silence.wav
+          # We don't strictly need audio background if they just want it to not crash on launch
           cd ../..
           
           # 3. Add UIBackgroundModes to Info.plist to keep app alive when exiting

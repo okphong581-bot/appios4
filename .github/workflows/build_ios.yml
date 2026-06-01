@@ -1,0 +1,78 @@
+name: HoangHa Optimizer iOS Build
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Generate Flutter Project Structure
+        run: |
+          # Dùng mã nguồn lib/ và pubspec.yaml để tái tạo lại iOS project
+          flutter create --org com.hoangha.optimizer --project-name hoangha_optimizer .
+          flutter pub get
+
+      - name: Flutter Analyze
+        run: flutter analyze
+
+      - name: Disable Code Signing for Jailbreak/TrollStore Build
+        run: |
+          # Tắt yêu cầu ký mã bắt buộc trên Xcode
+          sed -i '' '/buildSettings = {/a\
+                DEVELOPMENT_TEAM = DUMMY;\
+                CODE_SIGN_STYLE = Manual;\
+          ' ios/Runner.xcodeproj/project.pbxproj
+          
+          echo "CODE_SIGNING_ALLOWED = NO" >> ios/Flutter/Release.xcconfig
+          echo "CODE_SIGNING_REQUIRED = NO" >> ios/Flutter/Release.xcconfig
+          echo "CODE_SIGN_IDENTITY = " >> ios/Flutter/Release.xcconfig
+
+      - name: Build iOS App (No Codesign)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package IPA for TrollStore
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          
+          # Cấp quyền No-Sandbox cho TrollStore
+          cat << 'EOF' > entitlements.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.private.security.no-sandbox</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          
+          # Cài ldid và ép quyền
+          brew install ldid
+          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign -s "-" -f {} \; || true
+          find Payload/Runner.app/Frameworks -type f -name "*.dylib" -exec codesign -s "-" -f {} \; || true
+          codesign -s "-" -f --entitlements entitlements.plist Payload/Runner.app/Runner || true
+          codesign -s "-" -f Payload/Runner.app || true
+          
+          zip -r HoangHaOptimizer.ipa Payload
+          echo "Kích thước IPA:"
+          ls -lh HoangHaOptimizer.ipa
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoangHaOptimizer-TrollStore
+          path: HoangHaOptimizer.ipa

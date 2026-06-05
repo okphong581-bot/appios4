@@ -1,0 +1,240 @@
+name: Build WebView iOS App
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: |
+          brew install xcodegen
+          brew install ldid
+      - name: Create Project Structure
+        run: |
+          mkdir -p Sources
+          mkdir -p Resources
+          # === project.yml cho XcodeGen ===
+          cat > project.yml << 'PROJEOF'
+          name: WebApp
+          options:
+            bundleIdPrefix: com.webview
+            deploymentTarget:
+              iOS: "14.0"
+          settings:
+            base:
+              TARGETED_DEVICE_FAMILY: 1,2
+              SWIFT_VERSION: "5.0"
+              INFOPLIST_FILE: Resources/Info.plist
+              CODE_SIGNING_ALLOWED: "NO"
+              CODE_SIGNING_REQUIRED: "NO"
+              CODE_SIGN_IDENTITY: ""
+          targets:
+            WebApp:
+              type: application
+              platform: iOS
+              sources:
+                - path: Sources
+                  type: group
+              resources:
+                - path: Resources
+                  type: group
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.webview.webapp
+                  GENERATE_INFOPLIST_FILE: "NO"
+          PROJEOF
+          # === Info.plist ===
+          cat > Resources/Info.plist << 'PLISTEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleDisplayName</key>
+            <string>WebApp</string>
+            <key>CFBundleExecutable</key>
+            <string>$(EXECUTABLE_NAME)</string>
+            <key>CFBundleIdentifier</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>$(PRODUCT_NAME)</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
+            <key>LSRequiresIPhoneOS</key>
+            <true/>
+            <key>UILaunchStoryboardName</key>
+            <string></string>
+            <key>UIRequiredDeviceCapabilities</key>
+            <array>
+              <string>armv7</string>
+            </array>
+            <key>UISupportedInterfaceOrientations</key>
+            <array>
+              <string>UIInterfaceOrientationPortrait</string>
+              <string>UIInterfaceOrientationLandscapeLeft</string>
+              <string>UIInterfaceOrientationLandscapeRight</string>
+            </array>
+            <key>UISupportedInterfaceOrientations~ipad</key>
+            <array>
+              <string>UIInterfaceOrientationPortrait</string>
+              <string>UIInterfaceOrientationPortraitUpsideDown</string>
+              <string>UIInterfaceOrientationLandscapeLeft</string>
+              <string>UIInterfaceOrientationLandscapeRight</string>
+            </array>
+            <key>NSAppTransportSecurity</key>
+            <dict>
+              <key>NSAllowsArbitraryLoads</key>
+              <true/>
+            </dict>
+            <key>UIViewControllerBasedStatusBarAppearance</key>
+            <false/>
+            <key>UIStatusBarStyle</key>
+            <string>UIStatusBarStyleLightContent</string>
+          </dict>
+          </plist>
+          PLISTEOF
+          # === AppDelegate.swift ===
+          cat > Sources/AppDelegate.swift << 'SWIFTEOF'
+          import UIKit
+          @UIApplicationMain
+          class AppDelegate: UIResponder, UIApplicationDelegate {
+              var window: UIWindow?
+              func application(
+                  _ application: UIApplication,
+                  didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+              ) -> Bool {
+                  let window = UIWindow(frame: UIScreen.main.bounds)
+                  let viewController = WebViewController()
+                  window.rootViewController = viewController
+                  window.makeKeyAndVisible()
+                  self.window = window
+                  return true
+              }
+          }
+          SWIFTEOF
+          # === WebViewController.swift ===
+          cat > Sources/WebViewController.swift << 'SWIFTEOF'
+          import UIKit
+          import WebKit
+          class WebViewController: UIViewController, WKNavigationDelegate {
+              private var webView: WKWebView!
+              private var loadingLabel: UILabel!
+              override func viewDidLoad() {
+                  super.viewDidLoad()
+                  view.backgroundColor = UIColor.black
+                  // Cấu hình WebView
+                  let config = WKWebViewConfiguration()
+                  config.allowsInlineMediaPlayback = true
+                  config.mediaTypesRequiringUserActionForPlayback = []
+                  webView = WKWebView(frame: view.bounds, configuration: config)
+                  webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                  webView.navigationDelegate = self
+                  webView.scrollView.bounces = true
+                  webView.allowsBackForwardNavigationGestures = true
+                  webView.isOpaque = false
+                  webView.backgroundColor = UIColor.black
+                  webView.scrollView.backgroundColor = UIColor.black
+                  view.addSubview(webView)
+                  // Loading label
+                  loadingLabel = UILabel()
+                  loadingLabel.text = "Đang tải..."
+                  loadingLabel.textColor = UIColor.white
+                  loadingLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+                  loadingLabel.textAlignment = .center
+                  loadingLabel.translatesAutoresizingMaskIntoConstraints = false
+                  view.addSubview(loadingLabel)
+                  NSLayoutConstraint.activate([
+                      loadingLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                      loadingLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+                  ])
+                  // Tải trang web
+                  let targetURL = "https://spontaneous-semifreddo-b0e934.netlify.app/"
+                  if let url = URL(string: targetURL) {
+                      let request = URLRequest(url: url)
+                      webView.load(request)
+                  }
+              }
+              override var preferredStatusBarStyle: UIStatusBarStyle {
+                  return .lightContent
+              }
+              // MARK: - WKNavigationDelegate
+              func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+                  loadingLabel.isHidden = true
+              }
+              func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+                  loadingLabel.text = "Lỗi tải trang. Chạm để thử lại."
+                  loadingLabel.isHidden = false
+                  loadingLabel.isUserInteractionEnabled = true
+                  let tap = UITapGestureRecognizer(target: self, action: #selector(retryLoad))
+                  loadingLabel.addGestureRecognizer(tap)
+              }
+              func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+                  loadingLabel.text = "Không có kết nối mạng.\nChạm để thử lại."
+                  loadingLabel.numberOfLines = 0
+                  loadingLabel.isHidden = false
+                  loadingLabel.isUserInteractionEnabled = true
+                  let tap = UITapGestureRecognizer(target: self, action: #selector(retryLoad))
+                  loadingLabel.addGestureRecognizer(tap)
+              }
+              @objc func retryLoad() {
+                  loadingLabel.text = "Đang tải..."
+                  loadingLabel.isUserInteractionEnabled = false
+                  let targetURL = "https://spontaneous-semifreddo-b0e934.netlify.app/"
+                  if let url = URL(string: targetURL) {
+                      let request = URLRequest(url: url)
+                      webView.load(request)
+                  }
+              }
+          }
+          SWIFTEOF
+      - name: Generate Xcode Project
+        run: xcodegen generate
+      - name: Build iOS App
+        run: |
+          xcodebuild build \
+            -project WebApp.xcodeproj \
+            -scheme WebApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SYMROOT=$PWD/build \
+            2>&1 | tee xcodebuild_log.txt
+          
+          # Kiểm tra kết quả build
+          if [ ! -d "build/Release-iphoneos/WebApp.app" ]; then
+            echo "BUILD FAILED! Xem log:"
+            tail -100 xcodebuild_log.txt
+            exit 1
+          fi
+          echo "BUILD SUCCESS!"
+          ls -la build/Release-iphoneos/WebApp.app/
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/WebApp.app Payload/
+          
+          # Ký ad-hoc cho TrollStore
+          ldid -S Payload/WebApp.app/WebApp || true
+          
+          zip -r WebApp.ipa Payload
+          echo "=== IPA CREATED ==="
+          ls -la WebApp.ipa
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebApp-IPA
+          path: WebApp.ipa

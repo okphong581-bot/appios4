@@ -1,72 +1,101 @@
 import UIKit
 import Flutter
 
+/// AppDelegate — Điểm vào chính của ứng dụng iOS.
+///
+/// Trách nhiệm:
+/// 1. Đăng ký các plugins tự động qua `GeneratedPluginRegistrant`.
+/// 2. Đăng ký MethodChannel `ha.floating/overlay` để bridge với Flutter/Dart.
+/// 3. Xử lý các lệnh từ giao diện Flutter (showOverlay, hideOverlay, toggleOverlay, getOverlayState).
 @UIApplicationMain
-@objc class AppDelegate: FlutterAppDelegate {
-  
-  var overlayWindow: UIWindow?
+class AppDelegate: FlutterAppDelegate {
 
-  override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-  ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
-    
-    // Thiết lập cầu nối (MethodChannel) để nhận lệnh từ nút bấm Flutter
-    let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
-    let hackChannel = FlutterMethodChannel(name: "com.mod.menu/hack", binaryMessenger: controller.binaryMessenger)
-    
-    hackChannel.setMethodCallHandler({
-      (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
-      if call.method == "showMenu" {
-          self.setupFloatingMenu()
-          result("Success")
-      } else {
-          result(FlutterMethodNotImplemented)
-      }
-    })
-    
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-  
-  func setupFloatingMenu() {
-      // Chỉ tạo Menu khi có lệnh từ người dùng
-      DispatchQueue.main.async {
-          if self.overlayWindow != nil { return } // Tránh tạo nhiều lần
-          
-          let overlay = UIWindow(frame: CGRect(x: 20, y: 150, width: 60, height: 60))
-          overlay.windowLevel = UIWindow.Level.statusBar + 1000
-          overlay.backgroundColor = .clear
-          
-          let vc = UIViewController()
-          vc.view.backgroundColor = .clear
-          overlay.rootViewController = vc
-          
-          // Nút bấm tròn giả lập
-          let btn = UIButton(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
-          btn.backgroundColor = .green
-          btn.layer.cornerRadius = 30
-          btn.layer.borderWidth = 2
-          btn.layer.borderColor = UIColor.white.cgColor
-          btn.setTitle("", for: .normal)
-          btn.setTitleColor(.black, for: .normal)
-          btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 30)
-          
-          let pan = UIPanGestureRecognizer(target: self, action: #selector(self.panGesture(_:)))
-          btn.addGestureRecognizer(pan)
-          
-          vc.view.addSubview(btn)
-          
-          // Hiển thị Window đè hệ thống
-          overlay.makeKeyAndVisible()
-          self.overlayWindow = overlay
-      }
-  }
-  
-  @objc func panGesture(_ gesture: UIPanGestureRecognizer) {
-      guard let window = self.overlayWindow else { return }
-      let translation = gesture.translation(in: nil)
-      window.center = CGPoint(x: window.center.x + translation.x, y: window.center.y + translation.y)
-      gesture.setTranslation(.zero, in: nil)
-  }
+    private static let channelName = "ha.floating/overlay"
+
+    override func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        // 1. Đăng ký các plugin của Flutter
+        GeneratedPluginRegistrant.register(with: self)
+
+        // 2. Thiết lập cầu nối MethodChannel với Dart
+        setupOverlayChannel()
+
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    private func setupOverlayChannel() {
+        guard let controller = window?.rootViewController as? FlutterViewController else {
+            // Trong trường hợp dùng SceneDelegate, channel sẽ do SceneDelegate đăng ký
+            print("[HaFloating] AppDelegate: Không tìm thấy FlutterViewController, "
+                  + "sẽ setup channel từ SceneDelegate.")
+            return
+        }
+
+        let messenger = controller.binaryMessenger
+        let channel = FlutterMethodChannel(
+            name: AppDelegate.channelName,
+            binaryMessenger: messenger
+        )
+
+        channel.setMethodCallHandler { [weak self] call, result in
+            self?.handleMethodCall(call, result: result)
+        }
+
+        print("[HaFloating] MethodChannel '\(AppDelegate.channelName)' đã được đăng ký thành công.")
+    }
+
+    /// Xử lý các phương thức MethodChannel gọi từ Flutter
+    func handleMethodCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        print("[HaFloating] Nhận MethodChannel: \(call.method)")
+
+        switch call.method {
+        case "showOverlay":
+            OverlayWindowManager.shared.showOverlay { success, error in
+                if success {
+                    result("success")
+                } else {
+                    result(FlutterError(
+                        code: error?.code ?? "SHOW_FAILED",
+                        message: error?.message ?? "Không thể hiển thị overlay",
+                        details: nil
+                    ))
+                }
+            }
+            
+        case "hideOverlay":
+            OverlayWindowManager.shared.hideOverlay { success, error in
+                if success {
+                    result("success")
+                } else {
+                    result(FlutterError(
+                        code: error?.code ?? "HIDE_FAILED",
+                        message: error?.message ?? "Không thể ẩn overlay",
+                        details: nil
+                    ))
+                }
+            }
+            
+        case "toggleOverlay":
+            OverlayWindowManager.shared.toggleOverlay { isVisible, error in
+                if let error = error {
+                    result(FlutterError(
+                        code: error.code,
+                        message: error.message,
+                        details: nil
+                    ))
+                } else {
+                    result(isVisible)
+                }
+            }
+            
+        case "getOverlayState":
+            let isVisible = OverlayWindowManager.shared.isOverlayVisible
+            result(isVisible)
+            
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
 }

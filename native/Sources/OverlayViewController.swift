@@ -1,16 +1,6 @@
 import UIKit
 import CoreFoundation
 
-private func darwinNotificationCallback(center: CFNotificationCenter?, observer: UnsafeMutableRawPointer?, name: CFNotificationName?, object: UnsafeRawPointer?, userInfo: CFDictionary?) {
-    guard let observer = observer else { return }
-    let mySelf = Unmanaged<OverlayViewController>.fromOpaque(observer).takeUnretainedValue()
-    DispatchQueue.main.async {
-        mySelf.handleRotation()
-    }
-}
-
-import UIKit
-
 class ESPViewController: UIViewController {
     private var espView: UIView!
     

@@ -2,6 +2,8 @@ import Foundation
 import UIKit
 import Darwin
 
+var globalHUDDelegate: HUDAppDelegate?
+
 // Lấy tham số command line
 let args = CommandLine.arguments
 
@@ -30,8 +32,8 @@ if args.count > 1 && args[1] == "-hud" {
     let appDelegate = HUDAppDelegate()
     UIApplication.shared.delegate = appDelegate
     
-    // Lưu lại trong associated object để giữ strong reference
-    objc_setAssociatedObject(UIApplication.shared, "strongDelegate", appDelegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    // Lưu lại trong biến global để giữ strong reference
+    globalHUDDelegate = appDelegate
     
     // Run as plugin
     UIApplication.shared.runAsPlugin()

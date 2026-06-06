@@ -1,5 +1,7 @@
 import UIKit
 
+var globalSBSController: NSObject?
+
 class HUDApp: UIApplication {
     // Tùy chỉnh UIApplication cho chế độ daemon
 }
@@ -40,7 +42,7 @@ class HUDAppDelegate: UIResponder, UIApplicationDelegate {
                 registerWindow(controller, selector, contextId, windowLevel)
                 
                 // Lưu lại instance để không bị giải phóng
-                objc_setAssociatedObject(overlayWindow, "sbsController", controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                globalSBSController = controller
             }
         }
         

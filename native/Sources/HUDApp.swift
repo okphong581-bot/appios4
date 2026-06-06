@@ -17,6 +17,7 @@ class HUDAppDelegate: UIResponder, UIApplicationDelegate {
         
         // Khởi tạo cửa sổ overlay nổi full màn hình để dễ xoay
         let overlayWindow = HUDWindow(frame: UIScreen.main.bounds)
+        self.window = overlayWindow
         
         overlayWindow.rootViewController = OverlayViewController()
         overlayWindow.windowLevel = UIWindow.Level(rawValue: 10_000_010)

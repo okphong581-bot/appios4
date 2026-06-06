@@ -49,20 +49,35 @@ jobs:
           # Dùng file entitlements từ source code đã được cấu hình chuẩn (giữ container, thêm window-hosting)
           cp ios/Runner/Runner.entitlements entitlements.plist
           
-          # QUAN TRỌNG: Ký ad-hoc cho toàn bộ Frameworks đi kèm của Flutter
-          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign -s "-" -f {} \; || true
-          find Payload/Runner.app/Frameworks -type f -name "*.dylib" -exec codesign -s "-" -f {} \; || true
+          # QUAN TRỌNG: Quét và ký ad-hoc cho TẤT CẢ các file thực thi Mach-O (gồm Flutter.framework, App.framework, dylibs)
+          # Điều này giải quyết triệt để lỗi "màn hình đen rồi văng" do thư viện động không được ký đúng cách
+          find Payload/Runner.app -type f | while read file; do
+            if file "$file" | grep -q "Mach-O"; then
+              echo "Ký Mach-O: $file"
+              codesign -s "-" -f "$file" || true
+            fi
+          done
           
           # Ký đè lên file thực thi chính bằng entitlements.plist
-          codesign -s "-" -f --entitlements entitlements.plist Payload/Runner.app/Runner || true
-          codesign -s "-" -f Payload/Runner.app || true
+          codesign -s "-" -f --entitlements entitlements.plist Payload/Runner.app/Runner
           
-          # Đóng gói thành file đuôi .tipa chuẩn TrollStore
-          zip -r appios4.tipa Payload
-          echo "Kích thước file TIPA:"
-          ls -lh appios4.tipa
+          # Ký toàn bộ app bundle
+          codesign -s "-" -f Payload/Runner.app
+          
+          # Tạo đồng thời 2 định dạng: .ipa và .tipa như yêu cầu
+          zip -r appios4.ipa Payload
+          cp appios4.ipa appios4.tipa
+          
+          echo "Kích thước các file đầu ra:"
+          ls -lh appios4.ipa appios4.tipa
 
-      - name: Upload Artifact
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appios4-IPA
+          path: appios4.ipa
+
+      - name: Upload TIPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: appios4-TrollStore

@@ -1,53 +1,81 @@
 import UIKit
+import CoreFoundation
+
+private func darwinNotificationCallback(center: CFNotificationCenter?, observer: UnsafeMutableRawPointer?, name: CFNotificationName?, object: UnsafeRawPointer?, userInfo: CFDictionary?) {
+    guard let observer = observer else { return }
+    let mySelf = Unmanaged<OverlayViewController>.fromOpaque(observer).takeUnretainedValue()
+    DispatchQueue.main.async {
+        mySelf.handleRotation()
+    }
+}
 
 class OverlayViewController: UIViewController {
 
-    private lazy var container: UIView = {
+    private lazy var menuButton: UIView = {
         let v = UIView()
-        v.backgroundColor = .clear // Trong suốt hoàn toàn
+        v.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
+        v.layer.cornerRadius = 25
+        v.layer.borderWidth = 1.5
+        v.layer.borderColor = UIColor.systemBlue.cgColor
+        v.layer.shadowColor = UIColor.systemBlue.cgColor
+        v.layer.shadowOpacity = 0.8
+        v.layer.shadowRadius = 8
         v.translatesAutoresizingMaskIntoConstraints = true
         return v
     }()
 
-    private lazy var label: UILabel = {
+    private lazy var menuLabel: UILabel = {
         let l = UILabel()
-        l.text = "Hà Mods"
-        l.textColor = UIColor(red: 0.2, green: 1.0, blue: 0.55, alpha: 1.0)
-        l.font = UIFont(name: "AvenirNext-HeavyItalic", size: 24) ?? .systemFont(ofSize: 24, weight: .heavy)
+        l.text = "MENU ⚙️"
+        l.textColor = .white
+        l.font = UIFont.systemFont(ofSize: 12, weight: .bold)
         l.textAlignment = .center
-        
-        // Tạo viền/shadow phát sáng đẹp mắt để dễ nhìn trên nền trắng/đen
-        l.layer.shadowColor = UIColor.black.cgColor
-        l.layer.shadowOffset = CGSize(width: 1, height: 1)
-        l.layer.shadowOpacity = 0.8
-        l.layer.shadowRadius = 3
-        
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
+    
+    // ESP Container
+    private lazy var espView: UIView = {
+        let v = UIView(frame: UIScreen.main.bounds)
+        v.backgroundColor = .clear
+        v.isHidden = true
+        v.isUserInteractionEnabled = false
+        return v
+    }()
+    
+    private var isEspVisible = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
         
-        // Thêm các view
-        view.addSubview(container)
-        container.addSubview(label)
-
-        // Căn giữa label trong container
+        // Setup ESP View
+        view.addSubview(espView)
+        setupFakeESP()
+        
+        // Setup Menu Button
+        view.addSubview(menuButton)
+        menuButton.addSubview(menuLabel)
+        
+        // Căn giữa text trong menu
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+            menuLabel.centerXAnchor.constraint(equalTo: menuButton.centerXAnchor),
+            menuLabel.centerYAnchor.constraint(equalTo: menuButton.centerYAnchor)
         ])
         
-        // Đặt vị trí ban đầu cho container (ví dụ: góc trên bên trái)
-        container.frame = CGRect(x: 40, y: 100, width: 150, height: 50)
+        // Kích thước và vị trí ban đầu của menu
+        menuButton.frame = CGRect(x: 40, y: 100, width: 70, height: 50)
         
         attachGesture()
-        startColorAnimation()
+        attachTapGesture()
         
-        // Đăng ký nhận sự kiện xoay màn hình
+        // Bắt đầu nhận diện hướng xoay màn hình (dự phòng)
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         NotificationCenter.default.addObserver(self, selector: #selector(handleRotation), name: UIDevice.orientationDidChangeNotification, object: nil)
+        
+        // Đăng ký Darwin Notification cho SpringBoard Orientation (đáng tin cậy hơn cho daemon)
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, darwinNotificationCallback, "com.apple.springboard.rawOrientation" as CFString, nil, .deliverImmediately)
         
         // Cập nhật hướng xoay ngay lần đầu
         handleRotation()
@@ -55,12 +83,96 @@ class OverlayViewController: UIViewController {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, CFNotificationName("com.apple.springboard.rawOrientation" as CFString), nil)
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
+    }
+
+    private func setupFakeESP() {
+        let screenBounds = UIScreen.main.bounds
+        
+        // 1. FOV Circle (Aimbot FOV)
+        let fovRadius: CGFloat = 80
+        let fovCircle = UIView(frame: CGRect(x: screenBounds.midX - fovRadius, y: screenBounds.midY - fovRadius, width: fovRadius * 2, height: fovRadius * 2))
+        fovCircle.layer.cornerRadius = fovRadius
+        fovCircle.layer.borderWidth = 1.5
+        fovCircle.layer.borderColor = UIColor.green.cgColor
+        fovCircle.backgroundColor = UIColor.green.withAlphaComponent(0.05)
+        fovCircle.autoresizingMask = [.flexibleTopMargin, .flexibleBottomMargin, .flexibleLeftMargin, .flexibleRightMargin]
+        espView.addSubview(fovCircle)
+        
+        // 2. Fake ESP Boxes
+        let box1 = createFakeESPBox(frame: CGRect(x: screenBounds.midX - 100, y: screenBounds.midY - 150, width: 40, height: 80), distance: "12m", health: 0.8)
+        let box2 = createFakeESPBox(frame: CGRect(x: screenBounds.midX + 80, y: screenBounds.midY - 50, width: 30, height: 60), distance: "45m", health: 0.3)
+        let box3 = createFakeESPBox(frame: CGRect(x: screenBounds.midX - 180, y: screenBounds.midY + 20, width: 25, height: 50), distance: "88m", health: 1.0)
+        
+        espView.addSubview(box1)
+        espView.addSubview(box2)
+        espView.addSubview(box3)
+        
+        // Animate fake ESP slightly
+        UIView.animate(withDuration: 2.0, delay: 0, options: [.repeat, .autoreverse, .allowUserInteraction], animations: {
+            box1.transform = CGAffineTransform(translationX: 15, y: -10)
+            box2.transform = CGAffineTransform(translationX: -20, y: 5)
+            box3.transform = CGAffineTransform(translationX: 10, y: 15)
+        }, completion: nil)
+    }
+    
+    private func createFakeESPBox(frame: CGRect, distance: String, health: CGFloat) -> UIView {
+        let container = UIView(frame: frame)
+        container.autoresizingMask = [.flexibleTopMargin, .flexibleBottomMargin, .flexibleLeftMargin, .flexibleRightMargin]
+        
+        // Red Box
+        let box = UIView(frame: container.bounds)
+        box.layer.borderWidth = 1.5
+        box.layer.borderColor = UIColor.red.cgColor
+        box.backgroundColor = UIColor.red.withAlphaComponent(0.1)
+        container.addSubview(box)
+        
+        // Health Bar
+        let hpBarBg = UIView(frame: CGRect(x: -6, y: 0, width: 3, height: frame.height))
+        hpBarBg.backgroundColor = .darkGray
+        container.addSubview(hpBarBg)
+        
+        let hpBar = UIView(frame: CGRect(x: -6, y: frame.height * (1.0 - health), width: 3, height: frame.height * health))
+        hpBar.backgroundColor = health > 0.5 ? .green : .red
+        container.addSubview(hpBar)
+        
+        // Distance Text
+        let distLabel = UILabel(frame: CGRect(x: 0, y: -16, width: 50, height: 14))
+        distLabel.text = distance
+        distLabel.textColor = .yellow
+        distLabel.font = UIFont.systemFont(ofSize: 10, weight: .bold)
+        distLabel.layer.shadowColor = UIColor.black.cgColor
+        distLabel.layer.shadowOffset = CGSize(width: 1, height: 1)
+        distLabel.layer.shadowOpacity = 0.8
+        container.addSubview(distLabel)
+        
+        return container
     }
 
     private func attachGesture() {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.maximumNumberOfTouches = 1
-        container.addGestureRecognizer(pan)
+        menuButton.addGestureRecognizer(pan)
+    }
+    
+    private func attachTapGesture() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(onTap))
+        menuButton.addGestureRecognizer(tap)
+    }
+
+    @objc private func onTap() {
+        isEspVisible.toggle()
+        UIView.transition(with: espView, duration: 0.3, options: .transitionCrossDissolve, animations: {
+            self.espView.isHidden = !self.isEspVisible
+        }, completion: nil)
+        
+        // Đổi màu viền menu để biết đang bật hay tắt
+        UIView.animate(withDuration: 0.3) {
+            self.menuButton.layer.borderColor = self.isEspVisible ? UIColor.green.cgColor : UIColor.systemBlue.cgColor
+            self.menuButton.layer.shadowColor = self.isEspVisible ? UIColor.green.cgColor : UIColor.systemBlue.cgColor
+        }
     }
 
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
@@ -70,30 +182,30 @@ class OverlayViewController: UIViewController {
         switch g.state {
         case .began:
             UIView.animate(withDuration: 0.15) {
-                self.container.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+                self.menuButton.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
             }
         case .changed:
-            var c = container.center
+            var c = menuButton.center
             c.x += t.x
             c.y += t.y
             
-            // Giới hạn không cho kéo container ra ngoài màn hình
-            c.x = max(container.bounds.width / 2, min(c.x, s.width - container.bounds.width / 2))
-            c.y = max(container.bounds.height / 2, min(c.y, s.height - container.bounds.height / 2))
+            // Giới hạn không cho kéo ra ngoài màn hình
+            c.x = max(menuButton.bounds.width / 2, min(c.x, s.width - menuButton.bounds.width / 2))
+            c.y = max(menuButton.bounds.height / 2, min(c.y, s.height - menuButton.bounds.height / 2))
             
-            container.center = c
+            menuButton.center = c
             g.setTranslation(.zero, in: view)
             
         case .ended, .cancelled:
             UIView.animate(withDuration: 0.2) {
-                self.container.transform = .identity
+                self.menuButton.transform = .identity
             }
-            OverlayWindowManager.shared.savePosition(container.frame.origin)
+            OverlayWindowManager.shared.savePosition(menuButton.frame.origin)
         default: break
         }
     }
     
-    @objc private func handleRotation() {
+    @objc func handleRotation() {
         let orientation = UIDevice.current.orientation
         var angle: CGFloat = 0
         
@@ -109,21 +221,28 @@ class OverlayViewController: UIViewController {
         }
         
         UIView.animate(withDuration: 0.3) {
-            // Xoay toàn bộ view chính để các thành phần bên trong xoay theo
+            // Xoay toàn bộ view chính để ESP và Menu xoay theo
             self.view.transform = CGAffineTransform(rotationAngle: angle)
             
-            // Đảm bảo container không bị văng ra khỏi màn hình sau khi xoay
+            // Căn chỉnh lại menuButton để không văng ra ngoài sau khi xoay
             let s = UIScreen.main.bounds.size
-            var c = self.container.center
-            c.x = max(self.container.bounds.width / 2, min(c.x, s.width - self.container.bounds.width / 2))
-            c.y = max(self.container.bounds.height / 2, min(c.y, s.height - self.container.bounds.height / 2))
-            self.container.center = c
+            var c = self.menuButton.center
+            c.x = max(self.menuButton.bounds.width / 2, min(c.x, s.width - self.menuButton.bounds.width / 2))
+            c.y = max(self.menuButton.bounds.height / 2, min(c.y, s.height - self.menuButton.bounds.height / 2))
+            self.menuButton.center = c
+            
+            // Đặt lại frame của ESP view để cover toàn bộ màn hình
+            // Vì view bị xoay, hệ toạ độ nội bộ thay đổi, ta nên dùng frame = bounds của screen, nhưng hoán đổi width/height nếu landscape
+            if orientation.isLandscape {
+                self.espView.frame = CGRect(x: 0, y: 0, width: s.height, height: s.width)
+            } else {
+                self.espView.frame = CGRect(x: 0, y: 0, width: s.width, height: s.height)
+            }
+            
+            // Căn giữa lại FOV
+            if let fov = self.espView.subviews.first {
+                fov.center = CGPoint(x: self.espView.bounds.midX, y: self.espView.bounds.midY)
+            }
         }
-    }
-
-    private func startColorAnimation() {
-        UIView.animate(withDuration: 2.0, delay: 0, options: [.repeat, .autoreverse, .allowUserInteraction], animations: {
-            self.label.textColor = UIColor(red: 1.0, green: 0.2, blue: 0.55, alpha: 1.0)
-        }, completion: nil)
     }
 }

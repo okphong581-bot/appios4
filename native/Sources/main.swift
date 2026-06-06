@@ -57,8 +57,8 @@ if args.count > 1 && args[1] == "-hud" {
     // ----------------------------------------------------
     if let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
        let pid = Int32(pidString) {
-        kill(pid, SIGKILL)
-        unlink(pidPath)
+        kill(pid, 9) // SIGKILL
+        try? FileManager.default.removeItem(atPath: pidPath)
     }
     exit(0)
     

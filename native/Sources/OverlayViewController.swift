@@ -236,23 +236,30 @@ class OverlayViewController: UIViewController {
         }
         
         UIView.animate(withDuration: 0.3) {
-            // Xoay toàn bộ view chính để ESP và Menu xoay theo
+            // Xoay toàn bộ view chính
             self.view.transform = CGAffineTransform(rotationAngle: angle)
             
-            // Căn chỉnh lại menuButton để không văng ra ngoài sau khi xoay
-            let s = UIScreen.main.bounds.size
+            // QUAN TRỌNG: Phải cập nhật bounds để touch (hitTest) không bị liệt khi xoay
+            let screenBounds = UIScreen.main.fixedCoordinateSpace.bounds
+            let maxDim = max(screenBounds.width, screenBounds.height)
+            let minDim = min(screenBounds.width, screenBounds.height)
+            
+            if isLandscape {
+                self.view.bounds = CGRect(x: 0, y: 0, width: maxDim, height: minDim)
+            } else {
+                self.view.bounds = CGRect(x: 0, y: 0, width: minDim, height: maxDim)
+            }
+            
+            let s = self.view.bounds.size
+            
+            // Căn chỉnh lại menuButton để không văng ra ngoài sau khi bounds thay đổi
             var c = self.menuButton.center
             c.x = max(self.menuButton.bounds.width / 2, min(c.x, s.width - self.menuButton.bounds.width / 2))
             c.y = max(self.menuButton.bounds.height / 2, min(c.y, s.height - self.menuButton.bounds.height / 2))
             self.menuButton.center = c
             
             // Đặt lại frame của ESP view để cover toàn bộ màn hình
-            // Vì view bị xoay, hệ toạ độ nội bộ thay đổi, ta nên dùng frame = bounds của screen, nhưng hoán đổi width/height nếu landscape
-            if isLandscape {
-                self.espView.frame = CGRect(x: 0, y: 0, width: s.height, height: s.width)
-            } else {
-                self.espView.frame = CGRect(x: 0, y: 0, width: s.width, height: s.height)
-            }
+            self.espView.frame = self.view.bounds
             
             // Căn giữa lại FOV
             if let fov = self.espView.subviews.first {

@@ -69,9 +69,8 @@ class OverlayWindowManager {
             ))
             window.backgroundColor = .clear
 
-            window.windowScene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first
+            // KHÔNG gắn windowScene để tránh bị iOS ẩn khi app vào background
+            // window.windowScene = ...
 
             window.windowLevel = UIWindow.Level(rawValue: 1_000_000_000)
             window.rootViewController = OverlayViewController()

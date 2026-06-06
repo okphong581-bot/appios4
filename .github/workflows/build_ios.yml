@@ -1,4 +1,4 @@
-name: Build TrollStore TIPA — Hà Nhạy VIP Overlay
+name: "🚀 Build Hà Nhạy VIP — TrollStore TIPA"
 
 on:
   push:
@@ -9,97 +9,91 @@ permissions:
   contents: write
 
 jobs:
-  build-tipa:
+  build:
     runs-on: macos-latest
 
     steps:
-      # ─────────────────────────────────────────────────
-      - name: Checkout source code
+      # ── 1. Checkout ──────────────────────────────────────────────
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ─────────────────────────────────────────────────
-      - name: Setup Flutter (stable)
+      # ── 2. Flutter setup ─────────────────────────────────────────
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      # ─────────────────────────────────────────────────
-      - name: Install ldid (TrollStore-style codesign)
+      # ── 3. Tools ─────────────────────────────────────────────────
+      - name: Install ldid
         run: brew install ldid
 
-      # ─────────────────────────────────────────────────
-      - name: Get Flutter dependencies
+      # ── 4. Dependencies ──────────────────────────────────────────
+      - name: Flutter pub get
         run: flutter pub get
 
-      # ─────────────────────────────────────────────────
-      # Inject DEVELOPMENT_TEAM using Python (safe — không dùng sed)
-      # Chỉ chạy nếu chưa có DEVELOPMENT_TEAM trong file
+      # ── 5. Inject DEVELOPMENT_TEAM (Python, safe) ────────────────
       - name: Inject DEVELOPMENT_TEAM into project.pbxproj
         run: |
-          python3 - <<'PYEOF'
-          pbxproj = "ios/Runner.xcodeproj/project.pbxproj"
-          with open(pbxproj, "r", encoding="utf-8") as f:
-              content = f.read()
-
-          if "DEVELOPMENT_TEAM = DUMMY;" not in content:
-              content = content.replace(
+          python3 - <<'PY'
+          path = "ios/Runner.xcodeproj/project.pbxproj"
+          with open(path, "r", encoding="utf-8") as f:
+              src = f.read()
+          if "DEVELOPMENT_TEAM = DUMMY;" not in src:
+              src = src.replace(
                   "buildSettings = {",
                   "buildSettings = {\n\t\t\t\tDEVELOPMENT_TEAM = DUMMY;\n\t\t\t\tCODE_SIGN_STYLE = Manual;"
               )
-              with open(pbxproj, "w", encoding="utf-8") as f:
-                  f.write(content)
-              print("✅ DEVELOPMENT_TEAM injected.")
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(src)
+              print("✅ DEVELOPMENT_TEAM injected")
           else:
-              print("ℹ️ DEVELOPMENT_TEAM already present, skipped.")
-          PYEOF
+              print("ℹ️  Already present, skipped")
+          PY
 
-      # ─────────────────────────────────────────────────
-      - name: Disable code signing in xcconfig
+      # ── 6. Disable codesign in xcconfig ──────────────────────────
+      - name: Disable code signing
         run: |
-          echo "CODE_SIGNING_ALLOWED = NO"  >> ios/Flutter/Release.xcconfig
-          echo "CODE_SIGNING_REQUIRED = NO" >> ios/Flutter/Release.xcconfig
-          echo "CODE_SIGN_IDENTITY = "      >> ios/Flutter/Release.xcconfig
+          printf "\nCODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY = \n" \
+            >> ios/Flutter/Release.xcconfig
 
-      # ─────────────────────────────────────────────────
-      - name: Build iOS Release (no codesign)
+      # ── 7. Build iOS release ──────────────────────────────────────
+      - name: Build iOS (no codesign)
         run: |
           flutter clean
           flutter build ios --release --no-codesign
-          echo "✅ Flutter build hoàn thành"
+          echo "✅ Build done"
           ls -lh build/ios/iphoneos/
 
-      # ─────────────────────────────────────────────────
-      - name: Sign with ldid + Package as TIPA
+      # ── 8. Sign + Package ─────────────────────────────────────────
+      - name: Sign with ldid & package TIPA
         run: |
           set -e
+          APP="build/ios/iphoneos/Runner.app"
+          ENT="ios/Runner/Runner.entitlements"
 
-          APP_PATH="build/ios/iphoneos/Runner.app"
-          ENTITLEMENTS="ios/Runner/Runner.entitlements"
-          OUT_DIR="Payload"
+          mkdir -p Payload
+          cp -r "$APP" Payload/
 
-          mkdir -p "$OUT_DIR"
-          cp -r "$APP_PATH" "$OUT_DIR/"
-
-          echo "📦 Ký toàn bộ Mach-O binary với ad-hoc codesign..."
-          find "$OUT_DIR/Runner.app" -type f | while read -r file; do
-            if file "$file" | grep -qE "Mach-O|dylib"; then
-              codesign -s "-" -f "$file" 2>/dev/null && echo "  signed: $file" || true
+          echo "🔑 Ad-hoc sign all Mach-O binaries..."
+          find Payload/Runner.app -type f | while read -r f; do
+            if file "$f" | grep -qE "Mach-O|dylib"; then
+              codesign -s "-" -f "$f" 2>/dev/null || true
             fi
           done
 
-          echo "🔑 Áp dụng TrollStore entitlements với ldid..."
-          ldid -S"${ENTITLEMENTS}" "$OUT_DIR/Runner.app/Runner"
+          echo "📜 Apply TrollStore entitlements with ldid..."
+          ldid -S"${ENT}" Payload/Runner.app/Runner
 
-          echo "📦 Đóng gói thành TIPA..."
-          zip -qr HaNhayVIP.tipa "$OUT_DIR"
+          echo "📦 Zip to TIPA..."
+          zip -qr HaNhayVIP.tipa Payload
 
           echo ""
-          echo "✅ Đóng gói thành công!"
+          echo "✅ Done! File size:"
           ls -lh HaNhayVIP.tipa
 
-      # ─────────────────────────────────────────────────
-      - name: Upload TIPA Artifact
+      # ── 9. Upload artifact ────────────────────────────────────────
+      - name: Upload TIPA
         uses: actions/upload-artifact@v4
         with:
           name: HaNhayVIP-TrollStore

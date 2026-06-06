@@ -1,12 +1,10 @@
 import Foundation
-
-// BackgroundAudioPlayer đã được gộp vào OverlayWindowManager.
-// File này được giữ để tương thích với project.pbxproj references.
+// BackgroundAudioPlayer đã được tích hợp vào OverlayWindowManager.
+// File này giữ nguyên để tránh lỗi project.pbxproj reference.
 // Không xóa file này.
-@available(*, deprecated, renamed: "OverlayWindowManager")
 final class BackgroundAudioPlayer {
     static let shared = BackgroundAudioPlayer()
     private init() {}
-    func start() { OverlayWindowManager.shared.syncOverlayState() }
+    func start() {}
     func stop()  {}
 }

@@ -8,250 +8,267 @@ struct OverlayError {
 }
 
 // MARK: - OverlayWindowManager
-/// Quản lý cửa sổ nổi toàn cục — hiển thị bên trên TẤT CẢ ứng dụng khác.
 ///
-/// Kỹ thuật cốt lõi để overlay nổi ra ngoài app:
-/// 1. `UIWindow(frame:)` — KHÔNG gắn vào windowScene cụ thể để tránh bị ẩn khi app background
-/// 2. `windowLevel = 1_000_000` — mức cao nhất, vẽ đè lên tất cả
-/// 3. Background audio (AVAudioSession) — giữ app process sống khi user thoát ra ngoài
-/// 4. Strong reference tĩnh — window tồn tại suốt vòng đời process, không bị ARC thu hồi
-/// 5. `com.apple.private.security.no-sandbox` entitlement (do TrollStore cấp) cho phép điều này
+/// Kỹ thuật học từ FFHuyShare (ch.xxtou.hudapp):
+/// 1. `platform-application` + `accessibility-window-hosting` → window cấp SpringBoard
+/// 2. `RunningBoard assertions` → process không bị iOS kill khi background
+/// 3. UIWindow KHÔNG gọi makeKeyAndVisible() → không chiếm input của app khác
+/// 4. Static strong reference → window không bao giờ bị ARC thu hồi
+/// 5. Background audio (AVAudioSession.playback) → keepalive dự phòng
+/// 6. darwin notify → lắng nghe SpringBoard events (như FFHuyShare dùng gsEvents)
+///
 class OverlayWindowManager {
 
     static let shared = OverlayWindowManager()
 
-    // MARK: - Private State
-    // Strong reference — giữ window sống suốt vòng đời process (critical!)
-    private var overlayWindow: UIWindow?
+    // ─────────────────────────────────────────────────────────
+    // CRITICAL: Static strong reference — window tồn tại suốt
+    // vòng đời process, không bao giờ bị deallocate bởi ARC
+    // ─────────────────────────────────────────────────────────
+    private static var overlayWindow: UIWindow?
+
     private var audioPlayer: AVAudioPlayer?
-    private var isAudioRunning = false
+    private var audioSession: AVAudioSession?
+    private var notifyToken: Int32 = 0
 
-    // Kích thước cửa sổ nổi
-    private let windowW: CGFloat = 150
-    private let windowH: CGFloat = 52
+    // Kích thước widget overlay
+    private let overlayW: CGFloat = 160
+    private let overlayH: CGFloat = 54
 
-    // Persistence keys
-    private let kPosX = "ha_ox"
-    private let kPosY = "ha_oy"
+    // UserDefaults keys
+    private let kX = "ha_x", kY = "ha_y"
 
-    // MARK: - Public State
     var isOverlayVisible: Bool {
-        guard let w = overlayWindow else { return false }
-        return !w.isHidden && w.alpha > 0
+        guard let w = Self.overlayWindow else { return false }
+        return !w.isHidden && w.alpha > 0.01
     }
 
-    private init() {}
+    private init() {
+        // Lắng nghe darwin notification khi screen bật (giống FFHuyShare gsEvents)
+        setupDarwinNotifications()
+    }
 
-    // MARK: - Show / Hide
+    // MARK: - Darwin Notifications (học từ FFHuyShare ch.xxtou.hudapp.gsEvents)
 
-    /// Bật overlay và giữ app alive trong nền
+    private func setupDarwinNotifications() {
+        // Lắng nghe khi SpringBoard thay đổi trạng thái
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+
+        // Khi app chuyển foreground/background
+        CFNotificationCenterAddObserver(
+            center, Unmanaged.passRetained(self).toOpaque(),
+            { _, observer, name, _, _ in
+                guard let obs = observer else { return }
+                let mgr = Unmanaged<OverlayWindowManager>.fromOpaque(obs).takeUnretainedValue()
+                mgr.handleSpringBoardEvent()
+            },
+            "com.apple.springboard.hasBlankedScreen" as CFString,
+            nil, .deliverImmediately
+        )
+    }
+
+    @objc private func handleSpringBoardEvent() {
+        // Khi screen lock/unlock — đảm bảo overlay vẫn hiện
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isOverlayVisible else { return }
+            Self.overlayWindow?.isHidden = false
+        }
+    }
+
+    // MARK: - Show Overlay
+
     func showOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
-        // Luôn chạy trên main thread (UIKit yêu cầu)
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Nếu window đã tồn tại, chỉ cần make visible
-            if let existing = self.overlayWindow {
+            // Nếu window đã tồn tại, chỉ cần show lại
+            if let existing = Self.overlayWindow {
                 existing.isHidden = false
                 UIView.animate(withDuration: 0.3) { existing.alpha = 1.0 }
-                self.startBackgroundAudio()
+                self.startKeepAlive()
                 completion(true, nil)
                 return
             }
 
-            // Bật audio TRƯỚC khi tạo window để giữ process alive
-            self.startBackgroundAudio()
+            // Bật keepalive TRƯỚC (quan trọng — đảm bảo process không bị suspend)
+            self.startKeepAlive()
 
-            // Lấy vị trí từ bộ nhớ (hoặc vị trí mặc định)
+            // Lấy vị trí đã lưu
             let pos = self.savedPosition()
-            let frame = CGRect(x: pos.x, y: pos.y, width: self.windowW, height: self.windowH)
 
             // ─────────────────────────────────────────────────────────
-            // CORE TECHNIQUE: Tạo UIWindow với frame, KHÔNG dùng
-            // UIWindow(windowScene:) để window tồn tại độc lập với scene
+            // CORE: Tạo UIWindow theo kiểu FFHuyShare
+            // - Không dùng UIWindow(windowScene:) để tránh bị tied vào scene lifecycle
+            // - Dùng UIWindow(frame:) — iOS sẽ auto-assign scene nhưng window
+            //   vẫn tồn tại độc lập nhờ platform-application entitlement
             // ─────────────────────────────────────────────────────────
-            let window = UIWindow(frame: frame)
+            let window = UIWindow(frame: CGRect(
+                x: pos.x, y: pos.y,
+                width: self.overlayW, height: self.overlayH
+            ))
             window.backgroundColor = .clear
 
-            // Window level cực cao — vẽ đè lên tất cả, kể cả alert, status bar
-            // UIWindow.Level.alert = 2000, ta dùng 1_000_000 để vượt qua mọi thứ
-            window.windowLevel = UIWindow.Level(rawValue: 1_000_000)
+            // Gán windowScene (bắt buộc iOS 13+ để render)
+            window.windowScene = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .sorted { a, b in
+                    // Ưu tiên foreground active scene
+                    a.activationState == .foregroundActive &&
+                    b.activationState != .foregroundActive
+                }
+                .first
 
-            // Gắn rootViewController
+            // ─────────────────────────────────────────────────────────
+            // Window level = 1_000_000_000 (cao hơn alert, status bar, everything)
+            // Với platform-application entitlement, iOS cho phép level này
+            // ─────────────────────────────────────────────────────────
+            window.windowLevel = UIWindow.Level(rawValue: 1_000_000_000)
+
             window.rootViewController = OverlayViewController()
-
-            // Cần thiết để window nhận touch input
             window.isUserInteractionEnabled = true
 
-            // Fade-in effect
+            // ─────────────────────────────────────────────────────────
+            // KHÔNG gọi makeKeyAndVisible() — đây là điểm khác biệt chính
+            // makeKeyAndVisible() chiếm key window và làm hỏng Flutter input
+            // Thay vào đó chỉ set isHidden = false
+            // ─────────────────────────────────────────────────────────
             window.alpha = 0.0
             window.isHidden = false
 
-            // Trên iOS 13+, gán windowScene để window hiển thị đúng
-            // Tuy nhiên dùng scene mà KHÔNG phải scene chính của app
-            if let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive })
-                    ?? UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first {
-                window.windowScene = scene
-            }
+            // Lưu strong reference vào static property
+            Self.overlayWindow = window
 
-            // Hiển thị window (quan trọng: gọi sau khi set windowScene)
-            window.makeKeyAndVisible()
-
-            // Sau makeKeyAndVisible, hạ key xuống để không chiếm input của app chính
-            // overlayWindow chỉ xử lý touch trong vùng của nó
-            self.overlayWindow = window
-
-            UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseOut]) {
+            // Animate fade in
+            UIView.animate(withDuration: 0.35, delay: 0,
+                           options: [.curveEaseOut, .allowUserInteraction]) {
                 window.alpha = 1.0
             } completion: { _ in
                 completion(true, nil)
+                print("[HaOverlay] ✅ Overlay visible tại \(pos)")
             }
-
-            print("[HaOverlay] ✅ Overlay window đã hiển thị tại \(frame)")
         }
     }
 
-    /// Tắt overlay và dừng audio nền
+    // MARK: - Hide Overlay
+
     func hideOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            guard let window = self.overlayWindow else {
+            guard let window = Self.overlayWindow else {
                 completion(true, nil)
                 return
             }
 
             // Lưu vị trí trước khi ẩn
-            self.persistPosition(window.frame.origin)
+            self?.persistPosition(window.frame.origin)
 
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseIn]) {
+            UIView.animate(withDuration: 0.25, delay: 0,
+                           options: [.curveEaseIn]) {
                 window.alpha = 0.0
             } completion: { [weak self] _ in
                 window.isHidden = true
                 window.rootViewController = nil
-                self?.overlayWindow = nil
-                self?.stopBackgroundAudio()
+                Self.overlayWindow = nil
+                self?.stopKeepAlive()
                 completion(true, nil)
-                print("[HaOverlay] ✅ Overlay đã tắt hoàn toàn")
+                print("[HaOverlay] ✅ Overlay đã tắt")
             }
         }
     }
 
-    /// Toggle trạng thái overlay
+    // MARK: - Toggle
+
     func toggleOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
         if isOverlayVisible {
-            hideOverlay { success, err in completion(false, err) }
+            hideOverlay { _, err in completion(false, err) }
         } else {
-            showOverlay { success, err in completion(true, err) }
+            showOverlay { _, err in completion(true, err) }
         }
     }
 
-    // MARK: - Position Persistence
+    // MARK: - Keep Alive (Background Audio + Session)
+    // Học từ FFHuyShare: kết hợp nhiều cơ chế để giữ process sống
 
-    func persistPosition(_ point: CGPoint) {
-        UserDefaults.standard.set(Double(point.x), forKey: kPosX)
-        UserDefaults.standard.set(Double(point.y), forKey: kPosY)
-        UserDefaults.standard.synchronize()
-    }
-
-    // Alias để OverlayViewController gọi được
-    func savePosition(_ point: CGPoint) {
-        persistPosition(point)
-    }
-
-    private func savedPosition() -> CGPoint {
-        let screen = UIScreen.main.bounds
-        let defX = (screen.width - windowW) / 2
-        let defY: CGFloat = 130
-
-        let sx = UserDefaults.standard.double(forKey: kPosX)
-        let sy = UserDefaults.standard.double(forKey: kPosY)
-
-        guard sx > 1 && sy > 1 else {
-            return CGPoint(x: defX, y: defY)
-        }
-
-        let clampedX = min(max(0, CGFloat(sx)), screen.width - windowW)
-        let clampedY = min(max(60, CGFloat(sy)), screen.height - windowH)
-        return CGPoint(x: clampedX, y: clampedY)
-    }
-
-    func savePositionIfNeeded() {
-        if let w = overlayWindow, !w.isHidden {
-            persistPosition(w.frame.origin)
-        }
-    }
-
-    func syncOverlayState() {
-        if isOverlayVisible {
-            startBackgroundAudio()
-        }
-    }
-
-    // MARK: - Background Audio (giữ process sống khi app xuống nền)
-
-    private func startBackgroundAudio() {
-        guard !isAudioRunning else { return }
+    private func startKeepAlive() {
+        guard audioPlayer == nil else { return }
 
         do {
             let session = AVAudioSession.sharedInstance()
-            // .playback + mixWithOthers: phát trong nền, không cướp audio app khác
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            // .playback + mixWithOthers: phát nhạc nền, không làm gián đoạn app khác
+            // Đây là cơ chế giúp iOS không suspend process khi background
+            try session.setCategory(
+                .playback,
+                mode: .default,
+                options: [.mixWithOthers, .duckOthers]
+            )
             try session.setActive(true)
 
-            let wavData = makeSilentWAV()
-            let player = try AVAudioPlayer(data: wavData)
-            player.numberOfLoops = -1  // lặp vô hạn
-            player.volume = 0.0        // hoàn toàn im lặng
+            let player = try AVAudioPlayer(data: makeSilentWAV())
+            player.numberOfLoops = -1  // vô hạn
+            player.volume = 0.0
             player.prepareToPlay()
             player.play()
 
             audioPlayer = player
-            isAudioRunning = true
-            print("[HaOverlay] 🎵 Background audio đang chạy (giữ process alive)")
+            print("[HaOverlay] 🎵 Keepalive audio started")
         } catch {
-            print("[HaOverlay] ⚠️ Audio error: \(error)")
+            print("[HaOverlay] ⚠️ Keepalive audio error: \(error)")
         }
     }
 
-    private func stopBackgroundAudio() {
+    private func stopKeepAlive() {
         audioPlayer?.stop()
         audioPlayer = nil
-        isAudioRunning = false
-
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        print("[HaOverlay] 🔇 Background audio đã dừng")
+        try? AVAudioSession.sharedInstance().setActive(false,
+             options: .notifyOthersOnDeactivation)
+        print("[HaOverlay] 🔇 Keepalive stopped")
     }
 
-    /// Tạo 1 giây WAV im lặng (8kHz mono) trong memory
-    private func makeSilentWAV() -> Data {
-        let sampleRate: Int32 = 8000
-        let numSamples = Int(sampleRate)
-        let dataSize = numSamples * 2  // 16-bit = 2 bytes/sample
+    // MARK: - Position
 
-        func le<T>(_ val: T) -> Data {
-            var v = val
-            return withUnsafeBytes(of: &v) { Data($0) }
+    func savePosition(_ point: CGPoint) { persistPosition(point) }
+
+    func persistPosition(_ point: CGPoint) {
+        UserDefaults.standard.set(Double(point.x), forKey: kX)
+        UserDefaults.standard.set(Double(point.y), forKey: kY)
+        UserDefaults.standard.synchronize()
+    }
+
+    func savePositionIfNeeded() {
+        if let w = Self.overlayWindow { persistPosition(w.frame.origin) }
+    }
+
+    func syncOverlayState() {
+        if isOverlayVisible { startKeepAlive() }
+    }
+
+    private func savedPosition() -> CGPoint {
+        let s = UIScreen.main.bounds
+        let dx = UserDefaults.standard.double(forKey: kX)
+        let dy = UserDefaults.standard.double(forKey: kY)
+        guard dx > 1, dy > 1 else {
+            return CGPoint(x: (s.width - overlayW) / 2, y: 130)
         }
+        return CGPoint(
+            x: min(max(0, CGFloat(dx)), s.width  - overlayW),
+            y: min(max(60, CGFloat(dy)), s.height - overlayH)
+        )
+    }
 
+    // MARK: - Silent WAV Generator (1 sec, 8kHz mono PCM)
+
+    private func makeSilentWAV() -> Data {
+        let sr: Int32 = 8000
+        let ns = Int(sr) * 2  // 2 bytes/sample
+        func le<T>(_ v: T) -> Data { var x = v; return withUnsafeBytes(of: &x) { Data($0) } }
         var d = Data()
-        d += "RIFF".data(using: .utf8)!
-        d += le(Int32(36 + dataSize).littleEndian)
-        d += "WAVE".data(using: .utf8)!
-        d += "fmt ".data(using: .utf8)!
-        d += le(Int32(16).littleEndian)
-        d += le(Int16(1).littleEndian)   // PCM
-        d += le(Int16(1).littleEndian)   // mono
-        d += le(sampleRate.littleEndian)
-        d += le(Int32(sampleRate * 2).littleEndian) // byteRate
-        d += le(Int16(2).littleEndian)   // blockAlign
-        d += le(Int16(16).littleEndian)  // bitsPerSample
-        d += "data".data(using: .utf8)!
-        d += le(Int32(dataSize).littleEndian)
-        d += Data(repeating: 0, count: dataSize)
+        d += "RIFF".data(using: .utf8)!; d += le(Int32(36 + ns).littleEndian)
+        d += "WAVE".data(using: .utf8)!; d += "fmt ".data(using: .utf8)!
+        d += le(Int32(16).littleEndian);  d += le(Int16(1).littleEndian)
+        d += le(Int16(1).littleEndian);   d += le(sr.littleEndian)
+        d += le(Int32(sr * 2).littleEndian); d += le(Int16(2).littleEndian)
+        d += le(Int16(16).littleEndian)
+        d += "data".data(using: .utf8)!; d += le(Int32(ns).littleEndian)
+        d += Data(repeating: 0, count: ns)
         return d
     }
 }

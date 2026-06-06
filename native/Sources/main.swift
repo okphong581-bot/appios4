@@ -17,10 +17,21 @@ if args.count > 1 && args[1] == "-hud" {
     try? pidString.write(toFile: pidPath, atomically: true, encoding: .utf8)
     
     // Khởi tạo các service nền tảng
+    // Bắt buộc phải có để backend UI hoạt động
+    _ = RunLoop.current
+    _ = UIScreen.main
+    GSInitialize()
+    BKSDisplayServicesStart()
+    UIApplicationInitialize()
+    
     // Ở iOS hiện đại, để biến app thành plugin daemon:
     UIApplicationInstantiateSingleton(HUDApp.self)
+    // Phải giữ strong reference để delegate không bị giải phóng (vì UIApplication.delegate là weak)
     let appDelegate = HUDAppDelegate()
     UIApplication.shared.delegate = appDelegate
+    
+    // Lưu lại trong associated object để giữ strong reference
+    objc_setAssociatedObject(UIApplication.shared, "strongDelegate", appDelegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     
     // Run as plugin
     UIApplication.shared.runAsPlugin()

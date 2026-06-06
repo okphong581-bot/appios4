@@ -20,6 +20,15 @@ func _NSGetExecutablePath(_ buf: UnsafeMutablePointer<CChar>?, _ bufsize: Unsafe
 @_silgen_name("UIApplicationInstantiateSingleton")
 func UIApplicationInstantiateSingleton(_ appClass: AnyClass)
 
+@_silgen_name("GSInitialize")
+func GSInitialize()
+
+@_silgen_name("BKSDisplayServicesStart")
+func BKSDisplayServicesStart()
+
+@_silgen_name("UIApplicationInitialize")
+func UIApplicationInitialize()
+
 extension UIApplication {
     func runAsPlugin() {
         let selector = NSSelectorFromString("__completeAndRunAsPlugin")

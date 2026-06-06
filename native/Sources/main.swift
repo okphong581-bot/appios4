@@ -18,12 +18,22 @@ if args.count > 1 && args[1] == "-hud" {
     let pidString = "\(pid)"
     try? pidString.write(toFile: pidPath, atomically: true, encoding: .utf8)
     
-    // Khởi tạo các service nền tảng
-    // Bắt buộc phải có để backend UI hoạt động
+    // Khởi tạo các service nền tảng bằng dlopen để tránh lỗi Linker
     _ = RunLoop.current
     _ = UIScreen.main
-    GSInitialize()
-    BKSDisplayServicesStart()
+    
+    if let handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_NOW),
+       let sym = dlsym(handle, "GSInitialize") {
+        let gsInit = unsafeBitCast(sym, to: (@convention(c) () -> Void).self)
+        gsInit()
+    }
+    
+    if let handle = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW),
+       let sym = dlsym(handle, "BKSDisplayServicesStart") {
+        let bksStart = unsafeBitCast(sym, to: (@convention(c) () -> Void).self)
+        bksStart()
+    }
+    
     UIApplicationInitialize()
     
     // Ở iOS hiện đại, để biến app thành plugin daemon:

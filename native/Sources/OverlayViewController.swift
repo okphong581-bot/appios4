@@ -11,18 +11,17 @@ private func darwinNotificationCallback(center: CFNotificationCenter?, observer:
 
 class OverlayViewController: UIViewController {
 
-    private lazy var menuButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
-        b.layer.cornerRadius = 25
-        b.layer.borderWidth = 1.5
-        b.layer.borderColor = UIColor.systemBlue.cgColor
-        b.layer.shadowColor = UIColor.systemBlue.cgColor
-        b.layer.shadowOpacity = 0.8
-        b.layer.shadowRadius = 8
-        b.translatesAutoresizingMaskIntoConstraints = true
-        b.addTarget(self, action: #selector(onTap), for: .touchUpInside)
-        return b
+    private lazy var menuButton: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
+        v.layer.cornerRadius = 25
+        v.layer.borderWidth = 1.5
+        v.layer.borderColor = UIColor.systemBlue.cgColor
+        v.layer.shadowColor = UIColor.systemBlue.cgColor
+        v.layer.shadowOpacity = 0.8
+        v.layer.shadowRadius = 8
+        v.isUserInteractionEnabled = true
+        return v
     }()
 
     private lazy var menuLabel: UILabel = {
@@ -154,9 +153,10 @@ class OverlayViewController: UIViewController {
     private func attachGesture() {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.maximumNumberOfTouches = 1
-        pan.cancelsTouchesInView = false
         menuButton.addGestureRecognizer(pan)
     }
+    
+    // Tap logic is now handled in onPan if the pan distance is very small
 
     @objc private func onTap() {
         isEspVisible.toggle()
@@ -171,16 +171,20 @@ class OverlayViewController: UIViewController {
         }
     }
 
+    private var panStartLocation: CGPoint = .zero
+
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
-        let t = g.translation(in: view)
+        let location = g.location(in: view)
         let s = view.bounds.size
 
         switch g.state {
         case .began:
+            panStartLocation = location
             UIView.animate(withDuration: 0.15) {
                 self.menuButton.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
             }
         case .changed:
+            let t = g.translation(in: view)
             var c = menuButton.center
             c.x += t.x
             c.y += t.y
@@ -197,6 +201,12 @@ class OverlayViewController: UIViewController {
                 self.menuButton.transform = .identity
             }
             OverlayWindowManager.shared.savePosition(menuButton.frame.origin)
+            
+            // Xử lý như một cú chạm (Tap) nếu khoảng cách di chuyển rất nhỏ
+            let distance = hypot(location.x - panStartLocation.x, location.y - panStartLocation.y)
+            if distance < 10 {
+                onTap()
+            }
         default: break
         }
     }

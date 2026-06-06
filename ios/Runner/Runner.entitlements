@@ -2,21 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Cho phép ứng dụng truy cập các private API ngoài Sandbox để tạo cửa sổ nổi -->
+	<!-- Thoát sandbox → cho phép tạo UIWindow không bị hệ thống giới hạn -->
 	<key>com.apple.private.security.no-sandbox</key>
 	<true/>
-	
-	<!-- Các quyền quan trọng để đè cửa sổ nổi lên SpringBoard và các ứng dụng khác -->
+
+	<!-- Quyền host window trên SpringBoard (accessibility layer) -->
 	<key>com.apple.springboard.accessibility-window-hosting</key>
 	<true/>
+
+	<!-- Quyền truy cập SpringBoard UI services -->
 	<key>com.apple.springboard-ui.client</key>
 	<true/>
-	<key>com.apple.assistivetouch.daemon</key>
+
+	<!-- Quyền platform application - cho phép window level cao nhất -->
+	<key>platform-application</key>
 	<true/>
-	<key>com.apple.accessibility.api</key>
+
+	<!-- Quyền debug signals → giữ process alive khi background -->
+	<key>com.apple.springboard.debugapplicationsandsignals</key>
 	<true/>
-	
-	<!-- Cho phép chạy mã nguồn động (JIT) và cấp quyền tương tác phần cứng -->
+
+	<!-- Cho phép JIT (dynamic code execution cho Flutter engine) -->
+	<key>dynamic-codesigning</key>
+	<true/>
 	<key>run-unsigned-code</key>
 	<true/>
 	<key>get-task-allow</key>

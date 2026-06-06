@@ -1,125 +1,130 @@
 import UIKit
 
-/// OverlayViewController — Quản lý giao diện và cử chỉ kéo thả của overlay.
-///
-/// Trách nhiệm:
-/// 1. Tạo view chứa dòng chữ "Hà Nhạy VIP" với phong cách hiện đại (dark theme, viền neon, bóng đổ).
-/// 2. Lắng nghe cử chỉ pan (kéo thả) để di chuyển toàn bộ UIWindow chứa nó trên màn hình.
-/// 3. Lưu vị trí mới sau khi kéo thả xong để ghi nhớ trạng thái.
+/// OverlayViewController — Giao diện cửa sổ nổi "Hà Nhạy VIP".
+/// Hỗ trợ kéo thả bằng ngón tay và hiệu ứng nhấn.
 class OverlayViewController: UIViewController {
-    
-    // ──────────────────────────────────────────────────────────────
-    // UI Elements
-    // ──────────────────────────────────────────────────────────────
-    
+
+    // MARK: - UI Elements
+
     private let containerView: UIView = {
-        let view = UIView()
-        // Thiết lập nền màu tối bán trong suốt (Glassmorphism style)
-        view.backgroundColor = UIColor(red: 26/255, green: 23/255, blue: 48/255, alpha: 0.9)
-        view.layer.cornerRadius = 14
-        view.layer.borderWidth = 1.5
-        // Viền màu neon tím hồng giống Flutter UI
-        view.layer.borderColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.8).cgColor
-        
-        // Bóng đổ neon tím phát sáng nhẹ
-        view.layer.shadowColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.5).cgColor
-        view.layer.shadowOpacity = 0.6
-        view.layer.shadowOffset = .zero
-        view.layer.shadowRadius = 8
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
+        let v = UIView()
+        // Nền tối bán trong suốt (glassmorphism style)
+        v.backgroundColor = UIColor(red: 0.08, green: 0.06, blue: 0.18, alpha: 0.92)
+        v.layer.cornerRadius = 16
+        v.layer.borderWidth = 1.5
+        v.layer.borderColor = UIColor(red: 0.62, green: 0.42, blue: 0.98, alpha: 0.9).cgColor
+        // Neon glow tím
+        v.layer.shadowColor  = UIColor(red: 0.62, green: 0.42, blue: 0.98, alpha: 0.7).cgColor
+        v.layer.shadowOpacity = 0.8
+        v.layer.shadowRadius  = 10
+        v.layer.shadowOffset  = .zero
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
     }()
-    
+
+    private let dotView: UIView = {
+        // Chấm xanh nhấp nháy — chỉ báo overlay đang active
+        let v = UIView()
+        v.backgroundColor = UIColor(red: 0.2, green: 1.0, blue: 0.5, alpha: 1.0)
+        v.layer.cornerRadius = 4
+        v.layer.shadowColor  = UIColor(red: 0.2, green: 1.0, blue: 0.5, alpha: 1.0).cgColor
+        v.layer.shadowOpacity = 1.0
+        v.layer.shadowRadius  = 4
+        v.layer.shadowOffset  = .zero
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
     private let titleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Hà Nhạy VIP"
-        label.textColor = .white
-        label.font = UIFont.systemFont(ofSize: 15, weight: .bold)
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Tạo khoảng cách chữ rộng hơn nhìn cao cấp
-        let attributedString = NSMutableAttributedString(string: "Hà Nhạy VIP")
-        attributedString.addAttribute(
-            .kern,
-            value: 0.5,
-            range: NSRange(location: 0, length: attributedString.length)
-        )
-        label.attributedText = attributedString
-        return label
+        let lbl = UILabel()
+        // Gradient text effect với attributed string
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 14, weight: .bold),
+            .foregroundColor: UIColor.white,
+            .kern: 0.8
+        ]
+        lbl.attributedText = NSAttributedString(string: "Hà Nhạy VIP", attributes: attrs)
+        lbl.textAlignment = .center
+        lbl.translatesAutoresizingMaskIntoConstraints = false
+        return lbl
     }()
-    
-    // ──────────────────────────────────────────────────────────────
-    // Lifecycle
-    // ──────────────────────────────────────────────────────────────
-    
+
+    // MARK: - Lifecycle
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        // View controller nền trong suốt hoàn toàn
-        self.view.backgroundColor = .clear
-        
+        view.backgroundColor = .clear
         setupLayout()
         setupGestures()
+        startPulseAnimation()
     }
-    
-    // ──────────────────────────────────────────────────────────────
-    // Setup Methods
-    // ──────────────────────────────────────────────────────────────
-    
+
+    // MARK: - Layout
+
     private func setupLayout() {
-        self.view.addSubview(containerView)
+        view.addSubview(containerView)
+        containerView.addSubview(dotView)
         containerView.addSubview(titleLabel)
-        
+
         NSLayoutConstraint.activate([
-            // Container view bo sát lề ngoài của ViewController/Window
-            containerView.leadingAnchor.constraint(equalTo: self.view.leadingAnchor, constant: 4),
-            containerView.trailingAnchor.constraint(equalTo: self.view.trailingAnchor, constant: -4),
-            containerView.topAnchor.constraint(equalTo: self.view.topAnchor, constant: 4),
-            containerView.bottomAnchor.constraint(equalTo: self.view.bottomAnchor, constant: -4),
-            
-            // Label nằm ở trung tâm của container view
-            titleLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 2),
+            containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -2),
+            containerView.topAnchor.constraint(equalTo: view.topAnchor, constant: 2),
+            containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -2),
+
+            // Chấm xanh bên trái
+            dotView.widthAnchor.constraint(equalToConstant: 8),
+            dotView.heightAnchor.constraint(equalToConstant: 8),
+            dotView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            dotView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
+
+            // Text ở giữa
+            titleLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor, constant: 6),
             titleLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -12)
+            titleLabel.leadingAnchor.constraint(equalTo: dotView.trailingAnchor, constant: 6),
+            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -12),
         ])
     }
-    
+
+    // MARK: - Gestures
+
     private func setupGestures() {
-        // Sử dụng PanGesture để di chuyển vị trí
-        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        containerView.addGestureRecognizer(panGesture)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.minimumNumberOfTouches = 1
+        containerView.addGestureRecognizer(pan)
+        containerView.isUserInteractionEnabled = true
     }
-    
-    // ──────────────────────────────────────────────────────────────
-    // Gesture Handler
-    // ──────────────────────────────────────────────────────────────
-    
+
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let window = self.view.window else { return }
-        let translation = gesture.translation(in: self.view)
-        
+        guard let window = view.window else { return }
+        let translation = gesture.translation(in: view)
+        let screen = UIScreen.main.bounds
+
         if gesture.state == .changed {
-            var newCenter = window.center
-            newCenter.x += translation.x
-            newCenter.y += translation.y
-            
-            // Ràng buộc trong vùng an toàn của màn hình
-            let screenBounds = UIScreen.main.bounds
-            let halfWidth = window.frame.width / 2
-            let halfHeight = window.frame.height / 2
-            
-            // Giới hạn không cho kéo ra ngoài viền màn hình
-            newCenter.x = max(halfWidth, min(newCenter.x, screenBounds.width - halfWidth))
-            newCenter.y = max(halfHeight, min(newCenter.y, screenBounds.height - halfHeight))
-            
-            window.center = newCenter
-            gesture.setTranslation(.zero, in: self.view)
+            var origin = window.frame.origin
+            origin.x += translation.x
+            origin.y += translation.y
+
+            // Giới hạn trong màn hình
+            origin.x = max(0, min(origin.x, screen.width  - window.frame.width))
+            origin.y = max(60, min(origin.y, screen.height - window.frame.height))
+
+            window.frame.origin = origin
+            gesture.setTranslation(.zero, in: view)
+
         } else if gesture.state == .ended || gesture.state == .cancelled {
-            // Khi người dùng thả tay ra, lưu lại toạ độ x, y mới
             OverlayWindowManager.shared.savePosition(window.frame.origin)
-            print("[HaFloating] Đã lưu toạ độ mới: \(window.frame.origin)")
+        }
+    }
+
+    // MARK: - Animations
+
+    private func startPulseAnimation() {
+        // Nhấp nháy chấm xanh liên tục để biết overlay đang active
+        UIView.animate(withDuration: 1.0,
+                       delay: 0,
+                       options: [.repeat, .autoreverse, .allowUserInteraction]) {
+            self.dotView.alpha = 0.2
         }
     }
 }

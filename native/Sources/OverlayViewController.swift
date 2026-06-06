@@ -30,7 +30,7 @@ class OverlayViewController: UIViewController {
 
     private lazy var label: UILabel = {
         let l = UILabel()
-        l.text = "Hà Nhạy VIP"
+        l.text = "Hà Mods"
         l.textColor = .white
         l.font      = .systemFont(ofSize: 14, weight: .heavy)
         l.textAlignment = .left
@@ -53,6 +53,22 @@ class OverlayViewController: UIViewController {
         buildLayout()
         attachGesture()
         animateDot()
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(handleRotation), name: UIDevice.orientationDidChangeNotification, object: nil)
+    }
+    
+    @objc private func handleRotation() {
+        guard let w = view.window else { return }
+        let s = UIScreen.main.bounds
+        var o = w.frame.origin
+        
+        // Ensure window stays within screen bounds after rotation
+        o.x = min(o.x, s.width - w.frame.width)
+        o.y = min(o.y, s.height - w.frame.height)
+        
+        UIView.animate(withDuration: 0.3) {
+            w.frame.origin = o
+        }
     }
 
     private func buildLayout() {

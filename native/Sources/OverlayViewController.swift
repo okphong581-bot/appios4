@@ -11,17 +11,18 @@ private func darwinNotificationCallback(center: CFNotificationCenter?, observer:
 
 class OverlayViewController: UIViewController {
 
-    private lazy var menuButton: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
-        v.layer.cornerRadius = 25
-        v.layer.borderWidth = 1.5
-        v.layer.borderColor = UIColor.systemBlue.cgColor
-        v.layer.shadowColor = UIColor.systemBlue.cgColor
-        v.layer.shadowOpacity = 0.8
-        v.layer.shadowRadius = 8
-        v.translatesAutoresizingMaskIntoConstraints = true
-        return v
+    private lazy var menuButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
+        b.layer.cornerRadius = 25
+        b.layer.borderWidth = 1.5
+        b.layer.borderColor = UIColor.systemBlue.cgColor
+        b.layer.shadowColor = UIColor.systemBlue.cgColor
+        b.layer.shadowOpacity = 0.8
+        b.layer.shadowRadius = 8
+        b.translatesAutoresizingMaskIntoConstraints = true
+        b.addTarget(self, action: #selector(onTap), for: .touchUpInside)
+        return b
     }()
 
     private lazy var menuLabel: UILabel = {
@@ -67,7 +68,6 @@ class OverlayViewController: UIViewController {
         menuButton.frame = CGRect(x: 40, y: 100, width: 70, height: 50)
         
         attachGesture()
-        attachTapGesture()
         
         // Bắt đầu nhận diện hướng xoay màn hình (dự phòng)
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
@@ -154,12 +154,8 @@ class OverlayViewController: UIViewController {
     private func attachGesture() {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = false
         menuButton.addGestureRecognizer(pan)
-    }
-    
-    private func attachTapGesture() {
-        let tap = UITapGestureRecognizer(target: self, action: #selector(onTap))
-        menuButton.addGestureRecognizer(tap)
     }
 
     @objc private func onTap() {
@@ -206,18 +202,27 @@ class OverlayViewController: UIViewController {
     }
     
     @objc func handleRotation() {
-        let orientation = UIDevice.current.orientation
+        // UIDevice.current.orientation đôi khi bị lỗi trong daemon.
+        // Sử dụng private API của BackBoardServices để lấy góc quay thật của phần cứng.
+        let rawOrientation = BKSHIDServicesGetNonFlatDeviceOrientation()
+        let orientation = UIDeviceOrientation(rawValue: rawOrientation) ?? .unknown
+        
         var angle: CGFloat = 0
+        var isLandscape = false
         
         switch orientation {
         case .landscapeLeft:
             angle = .pi / 2
+            isLandscape = true
         case .landscapeRight:
             angle = -.pi / 2
+            isLandscape = true
         case .portraitUpsideDown:
             angle = .pi
+            isLandscape = false
         default:
             angle = 0
+            isLandscape = false
         }
         
         UIView.animate(withDuration: 0.3) {
@@ -233,7 +238,7 @@ class OverlayViewController: UIViewController {
             
             // Đặt lại frame của ESP view để cover toàn bộ màn hình
             // Vì view bị xoay, hệ toạ độ nội bộ thay đổi, ta nên dùng frame = bounds của screen, nhưng hoán đổi width/height nếu landscape
-            if orientation.isLandscape {
+            if isLandscape {
                 self.espView.frame = CGRect(x: 0, y: 0, width: s.height, height: s.width)
             } else {
                 self.espView.frame = CGRect(x: 0, y: 0, width: s.width, height: s.height)

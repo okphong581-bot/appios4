@@ -23,6 +23,9 @@ func UIApplicationInstantiateSingleton(_ appClass: AnyClass)
 @_silgen_name("UIApplicationInitialize")
 func UIApplicationInitialize()
 
+@_silgen_name("BKSHIDServicesGetNonFlatDeviceOrientation")
+func BKSHIDServicesGetNonFlatDeviceOrientation() -> Int
+
 extension UIApplication {
     func runAsPlugin() {
         let selector = NSSelectorFromString("__completeAndRunAsPlugin")

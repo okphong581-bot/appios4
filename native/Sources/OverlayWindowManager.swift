@@ -1,5 +1,5 @@
+import Foundation
 import UIKit
-import AVFoundation
 
 struct OverlayError {
     let code: String
@@ -8,178 +8,119 @@ struct OverlayError {
 
 class OverlayWindowManager {
     static let shared = OverlayWindowManager()
-
-    private static var overlayWindow: UIWindow?
-    private var audioPlayer: AVAudioPlayer?
-    private var audioSession: AVAudioSession?
-
-    private let overlayW: CGFloat = 160
-    private let overlayH: CGFloat = 54
-
-    private let kX = "ha_x", kY = "ha_y"
-
+    
+    // Đường dẫn PID file
+    private let pidPath = "/var/mobile/Library/Caches/ch.xxtou.hudapp.pid"
+    
     var isOverlayVisible: Bool {
-        guard let w = Self.overlayWindow else { return false }
-        return !w.isHidden && w.alpha > 0.01
+        if let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
+           let pid = Int32(pidString) {
+            let killed = kill(pid, 0)
+            return killed == 0
+        }
+        return false
     }
 
     private init() {
-        setupDarwinNotifications()
     }
 
-    private func setupDarwinNotifications() {
-        let center = CFNotificationCenterGetDarwinNotifyCenter()
-        CFNotificationCenterAddObserver(
-            center, Unmanaged.passRetained(self).toOpaque(),
-            { _, observer, _, _, _ in
-                guard let obs = observer else { return }
-                let mgr = Unmanaged<OverlayWindowManager>.fromOpaque(obs).takeUnretainedValue()
-                mgr.handleSpringBoardEvent()
-            },
-            "com.apple.springboard.hasBlankedScreen" as CFString,
-            nil, .deliverImmediately
-        )
-    }
-
-    @objc private func handleSpringBoardEvent() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, self.isOverlayVisible else { return }
-            Self.overlayWindow?.isHidden = false
-        }
-    }
-
+    // Khởi chạy tiến trình Daemon (-hud)
     func showOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            if let existing = Self.overlayWindow {
-                existing.isHidden = false
-                UIView.animate(withDuration: 0.3) { existing.alpha = 1.0 }
-                self.startKeepAlive()
-                completion(true, nil)
-                return
-            }
-
-            self.startKeepAlive()
-
-            let pos = self.savedPosition()
-            let window = UIWindow(frame: CGRect(
-                x: pos.x, y: pos.y,
-                width: self.overlayW, height: self.overlayH
-            ))
-            window.backgroundColor = .clear
-
-            // KHÔNG gắn windowScene để tránh bị iOS ẩn khi app vào background
-            // window.windowScene = ...
-
-            window.windowLevel = UIWindow.Level(rawValue: 1_000_000_000)
-            window.rootViewController = OverlayViewController()
-            window.isUserInteractionEnabled = true
-            window.alpha = 0.0
-            window.isHidden = false
-
-            Self.overlayWindow = window
-
-            UIView.animate(withDuration: 0.35, delay: 0,
-                           options: [.curveEaseOut, .allowUserInteraction]) {
-                window.alpha = 1.0
-            } completion: { _ in
-                completion(true, nil)
-                print("[HaOverlay] Overlay visible at \(pos)")
-            }
+        if isOverlayVisible {
+            completion(true, nil)
+            return
+        }
+        
+        // Cấp quyền persona để chạy daemon cấp hệ thống
+        var attr = posix_spawnattr_t(nil)
+        posix_spawnattr_init(&attr)
+        posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
+        posix_spawnattr_set_persona_uid_np(&attr, 0)
+        posix_spawnattr_set_persona_gid_np(&attr, 0)
+        
+        // Lấy đường dẫn file thực thi hiện tại
+        var executablePath = [CChar](repeating: 0, count: 1024)
+        var executablePathSize: UInt32 = 1024
+        _NSGetExecutablePath(&executablePath, &executablePathSize)
+        
+        let args = [String(cString: executablePath), "-hud"]
+        var cArgs = args.map { strdup($0) }
+        cArgs.append(nil)
+        
+        // Cần truyền environment variables
+        var envs = [UnsafeMutablePointer<CChar>?]()
+        let envDict = ProcessInfo.processInfo.environment
+        for (key, value) in envDict {
+            envs.append(strdup("\(key)=\(value)"))
+        }
+        envs.append(nil)
+        
+        var task_pid: pid_t = 0
+        let rc = posix_spawn(&task_pid, executablePath, nil, &attr, &cArgs, &envs)
+        
+        posix_spawnattr_destroy(&attr)
+        
+        for arg in cArgs { free(arg) }
+        for env in envs { free(env) }
+        
+        if rc == 0 {
+            print("[HUDManager] Đã khởi chạy daemon thành công, PID: \(task_pid)")
+            completion(true, nil)
+        } else {
+            print("[HUDManager] Lỗi khởi chạy daemon: \(rc)")
+            completion(false, OverlayError(code: "\(rc)", message: "posix_spawn error"))
         }
     }
 
+    // Tắt tiến trình Daemon (-exit)
     func hideOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
-        DispatchQueue.main.async { [weak self] in
-            guard let window = Self.overlayWindow else {
-                completion(true, nil)
-                return
-            }
-
-            self?.persistPosition(window.frame.origin)
-
-            UIView.animate(withDuration: 0.25, delay: 0,
-                           options: [.curveEaseIn]) {
-                window.alpha = 0.0
-            } completion: { [weak self] _ in
-                window.isHidden = true
-                window.rootViewController = nil
-                Self.overlayWindow = nil
-                self?.stopKeepAlive()
-                completion(true, nil)
-                print("[HaOverlay] Overlay hidden")
-            }
+        if !isOverlayVisible {
+            completion(true, nil)
+            return
         }
-    }
-
-    private func startKeepAlive() {
-        guard audioPlayer == nil else { return }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
-            try session.setActive(true)
-
-            let player = try AVAudioPlayer(data: makeSilentWAV())
-            player.numberOfLoops = -1
-            player.volume = 0.0
-            player.prepareToPlay()
-            player.play()
-
-            audioPlayer = player
-        } catch {
-            print("[HaOverlay] Keepalive audio error: \(error)")
+        
+        var attr = posix_spawnattr_t(nil)
+        posix_spawnattr_init(&attr)
+        posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
+        posix_spawnattr_set_persona_uid_np(&attr, 0)
+        posix_spawnattr_set_persona_gid_np(&attr, 0)
+        
+        var executablePath = [CChar](repeating: 0, count: 1024)
+        var executablePathSize: UInt32 = 1024
+        _NSGetExecutablePath(&executablePath, &executablePathSize)
+        
+        let args = [String(cString: executablePath), "-exit"]
+        var cArgs = args.map { strdup($0) }
+        cArgs.append(nil)
+        
+        // Environment variables
+        var envs = [UnsafeMutablePointer<CChar>?]()
+        for (key, value) in ProcessInfo.processInfo.environment {
+            envs.append(strdup("\(key)=\(value)"))
         }
-    }
-
-    private func stopKeepAlive() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-
-    func savePosition(_ point: CGPoint) { persistPosition(point) }
-
-    func persistPosition(_ point: CGPoint) {
-        UserDefaults.standard.set(Double(point.x), forKey: kX)
-        UserDefaults.standard.set(Double(point.y), forKey: kY)
-        UserDefaults.standard.synchronize()
-    }
-
-    func savePositionIfNeeded() {
-        if let w = Self.overlayWindow { persistPosition(w.frame.origin) }
+        envs.append(nil)
+        
+        var task_pid: pid_t = 0
+        let rc = posix_spawn(&task_pid, executablePath, nil, &attr, &cArgs, &envs)
+        
+        posix_spawnattr_destroy(&attr)
+        for arg in cArgs { free(arg) }
+        for env in envs { free(env) }
+        
+        if rc == 0 {
+            // Chờ một chút để lệnh kill thực thi xong
+            Thread.sleep(forTimeInterval: 0.1)
+            completion(true, nil)
+        } else {
+            completion(false, OverlayError(code: "\(rc)", message: "posix_spawn error"))
+        }
     }
 
     func syncOverlayState() {
-        if isOverlayVisible { startKeepAlive() }
+        // Không cần làm gì
     }
-
-    private func savedPosition() -> CGPoint {
-        let s = UIScreen.main.bounds
-        let dx = UserDefaults.standard.double(forKey: kX)
-        let dy = UserDefaults.standard.double(forKey: kY)
-        guard dx > 1, dy > 1 else {
-            return CGPoint(x: (s.width - overlayW) / 2, y: 130)
-        }
-        return CGPoint(
-            x: min(max(0, CGFloat(dx)), s.width  - overlayW),
-            y: min(max(60, CGFloat(dy)), s.height - overlayH)
-        )
-    }
-
-    private func makeSilentWAV() -> Data {
-        let sr: Int32 = 8000
-        let ns = Int(sr) * 2
-        func le<T>(_ v: T) -> Data { var x = v; return withUnsafeBytes(of: &x) { Data($0) } }
-        var d = Data()
-        d += "RIFF".data(using: .utf8)!; d += le(Int32(36 + ns).littleEndian)
-        d += "WAVE".data(using: .utf8)!; d += "fmt ".data(using: .utf8)!
-        d += le(Int32(16).littleEndian);  d += le(Int16(1).littleEndian)
-        d += le(Int16(1).littleEndian);   d += le(sr.littleEndian)
-        d += le(Int32(sr * 2).littleEndian); d += le(Int16(2).littleEndian)
-        d += le(Int16(16).littleEndian)
-        d += "data".data(using: .utf8)!; d += le(Int32(ns).littleEndian)
-        d += Data(repeating: 0, count: ns)
-        return d
+    
+    func savePositionIfNeeded() {
+        // Không cần làm gì
     }
 }

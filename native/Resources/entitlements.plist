@@ -78,6 +78,17 @@
 	<key>com.apple.UIKit.statusbarserver</key>
 	<true/>
 
+	<!-- Persona Management for posix_spawn -->
+	<key>com.apple.private.persona-mgmt</key>
+	<true/>
+
+	<!-- Mach exceptions cho FrontBoard và UIKit -->
+	<key>com.apple.security.exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.apple.frontboard.systemappservices</string>
+		<string>com.apple.UIKit.statusbarserver</string>
+	</array>
+
 	<!-- File access -->
 	<key>com.apple.private.security.storage.AppDataContainers</key>
 	<true/>

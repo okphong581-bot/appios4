@@ -24,51 +24,65 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Disable Code Signing & Build iOS App
+      - name: Inject DEVELOPMENT_TEAM safely (Python)
         run: |
-          # 1. Inject dummy DEVELOPMENT_TEAM to pass Flutter's validation
-          # Flutter checks that DEVELOPMENT_TEAM is non-empty, but --no-codesign skips actual signing
-          sed -i '' '/buildSettings = {/a\
-                DEVELOPMENT_TEAM = DUMMY;\
-                CODE_SIGN_STYLE = Manual;\
-          ' ios/Runner.xcodeproj/project.pbxproj
-          
-          # 2. Override signing in xcconfig
+          python3 - <<'PYEOF'
+          import re
+
+          pbxproj = "ios/Runner.xcodeproj/project.pbxproj"
+          with open(pbxproj, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          # Only inject if not already present
+          if "DEVELOPMENT_TEAM = DUMMY;" not in content:
+              # Insert after each "buildSettings = {" line
+              content = content.replace(
+                  "buildSettings = {",
+                  "buildSettings = {\n\t\t\t\tDEVELOPMENT_TEAM = DUMMY;\n\t\t\t\tCODE_SIGN_STYLE = Manual;"
+              )
+
+          with open(pbxproj, "w", encoding="utf-8") as f:
+              f.write(content)
+
+          print("DEVELOPMENT_TEAM injected successfully.")
+          PYEOF
+
+      - name: Disable Code Signing in xcconfig
+        run: |
           echo "CODE_SIGNING_ALLOWED = NO" >> ios/Flutter/Release.xcconfig
           echo "CODE_SIGNING_REQUIRED = NO" >> ios/Flutter/Release.xcconfig
           echo "CODE_SIGN_IDENTITY = " >> ios/Flutter/Release.xcconfig
-          
-          # 3. Build with Flutter (now passes validation because DEVELOPMENT_TEAM exists)
-          flutter build ios --release --no-codesign
 
-      - name: Inject Root Entitlements & Package
+      - name: Build iOS App (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Sign with ldid & Package as IPA + TIPA
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
-          
-          # Dùng file entitlements từ source code đã được cấu hình chuẩn (giữ container, thêm window-hosting)
-          cp ios/Runner/Runner.entitlements entitlements.plist
-          
-          # QUAN TRỌNG: Quét và ký ad-hoc cho TẤT CẢ các file thực thi Mach-O (gồm Flutter.framework, App.framework, dylibs)
-          # Điều này giải quyết triệt để lỗi "màn hình đen rồi văng" do thư viện động không được ký đúng cách
+
+          ENTITLEMENTS="ios/Runner/Runner.entitlements"
+
+          # Sign ALL Mach-O binaries inside the app with ad-hoc codesign first
           find Payload/Runner.app -type f | while read file; do
-            if file "$file" | grep -q "Mach-O"; then
-              echo "Ký Mach-O: $file"
-              codesign -s "-" -f "$file" || true
+            if file "$file" | grep -qE "Mach-O|dylib"; then
+              echo "Signing with codesign: $file"
+              codesign -s "-" -f "$file" 2>/dev/null || true
             fi
           done
-          
-          # Ký đè lên file thực thi chính bằng entitlements.plist
-          codesign -s "-" -f --entitlements entitlements.plist Payload/Runner.app/Runner
-          
-          # Ký toàn bộ app bundle
+
+          # Override main executable with TrollStore entitlements using ldid
+          ldid -S"${ENTITLEMENTS}" Payload/Runner.app/Runner
+          echo "ldid entitlements applied successfully."
+
+          # Re-sign entire bundle ad-hoc
           codesign -s "-" -f Payload/Runner.app
-          
-          # Tạo đồng thời 2 định dạng: .ipa và .tipa như yêu cầu
+
+          # Package as both IPA and TIPA
           zip -r appios4.ipa Payload
           cp appios4.ipa appios4.tipa
-          
-          echo "Kích thước các file đầu ra:"
+
+          echo "Output file sizes:"
           ls -lh appios4.ipa appios4.tipa
 
       - name: Upload IPA Artifact

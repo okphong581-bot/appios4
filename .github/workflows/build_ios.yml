@@ -64,7 +64,20 @@ jobs:
           done
 
           echo "📜 Apply TrollStore entitlements with ldid..."
-          ldid -S"${ENT}" Payload/HaNhayVIP.app/HaNhayVIP
+          EXEC=$(find Payload/*.app -type f -perm +111 | grep -v "\." | head -n 1)
+          if [ -z "$EXEC" ]; then
+            echo "Cannot find executable in Payload"
+            ls -la Payload/HaNhayVIP.app/
+            exit 1
+          fi
+          
+          if [ ! -f "$ENT" ]; then
+            echo "Cannot find entitlements file: $ENT"
+            exit 1
+          fi
+          
+          echo "Signing $EXEC with $ENT"
+          ldid -S"${ENT}" "$EXEC"
 
           echo "📦 Zip to TIPA..."
           zip -qr HaNhayVIP.tipa Payload

@@ -1,4 +1,4 @@
-name: "🚀 Build Hà Nhạy VIP — TrollStore TIPA"
+name: "🚀 Build Hà Nhạy VIP (Pure Swift) — TrollStore TIPA"
 
 on:
   push:
@@ -13,89 +13,68 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Flutter setup ─────────────────────────────────────────
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
-
-      # ── 3. Tools ─────────────────────────────────────────────────
-      - name: Install ldid
-        run: brew install ldid
-
-      # ── 4. Dependencies ──────────────────────────────────────────
-      - name: Flutter pub get
-        run: flutter pub get
-
-      # ── 5. Inject DEVELOPMENT_TEAM (Python, safe) ────────────────
-      - name: Inject DEVELOPMENT_TEAM into project.pbxproj
+      - name: Install dependencies
         run: |
-          python3 - <<'PY'
-          path = "ios/Runner.xcodeproj/project.pbxproj"
-          with open(path, "r", encoding="utf-8") as f:
-              src = f.read()
-          if "DEVELOPMENT_TEAM = DUMMY;" not in src:
-              src = src.replace(
-                  "buildSettings = {",
-                  "buildSettings = {\n\t\t\t\tDEVELOPMENT_TEAM = DUMMY;\n\t\t\t\tCODE_SIGN_STYLE = Manual;"
-              )
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(src)
-              print("✅ DEVELOPMENT_TEAM injected")
-          else:
-              print("ℹ️  Already present, skipped")
-          PY
+          brew install ldid xcodegen
 
-      # ── 6. Disable codesign in xcconfig ──────────────────────────
-      - name: Disable code signing
-        run: |
-          printf "\nCODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY = \n" \
-            >> ios/Flutter/Release.xcconfig
+      - name: Generate Xcode Project
+        working-directory: native
+        run: xcodegen generate
 
-      # ── 7. Build iOS release ──────────────────────────────────────
-      - name: Build iOS (no codesign)
+      - name: Build iOS release
+        working-directory: native
         run: |
-          flutter clean
-          flutter build ios --release --no-codesign
+          xcodebuild build \
+            -project HaNhayVIP.xcodeproj \
+            -scheme HaNhayVIP \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SYMROOT=$PWD/build \
+            2>&1 | tee xcodebuild_log.txt
+          
+          if [ ! -d "build/Release-iphoneos/HaNhayVIP.app" ]; then
+            echo "BUILD FAILED! Check log:"
+            tail -100 xcodebuild_log.txt
+            exit 1
+          fi
           echo "✅ Build done"
-          ls -lh build/ios/iphoneos/
 
-      # ── 8. Sign + Package ─────────────────────────────────────────
-      - name: Sign with ldid & package TIPA
+      - name: Sign & Package TIPA
+        working-directory: native
         run: |
           set -e
-          APP="build/ios/iphoneos/Runner.app"
-          ENT="ios/Runner/Runner.entitlements"
+          APP="build/Release-iphoneos/HaNhayVIP.app"
+          ENT="Resources/entitlements.plist"
 
           mkdir -p Payload
           cp -r "$APP" Payload/
 
           echo "🔑 Ad-hoc sign all Mach-O binaries..."
-          find Payload/Runner.app -type f | while read -r f; do
+          find Payload/HaNhayVIP.app -type f | while read -r f; do
             if file "$f" | grep -qE "Mach-O|dylib"; then
               codesign -s "-" -f "$f" 2>/dev/null || true
             fi
           done
 
           echo "📜 Apply TrollStore entitlements with ldid..."
-          ldid -S"${ENT}" Payload/Runner.app/Runner
+          ldid -S"${ENT}" Payload/HaNhayVIP.app/HaNhayVIP
 
           echo "📦 Zip to TIPA..."
           zip -qr HaNhayVIP.tipa Payload
 
-          echo ""
           echo "✅ Done! File size:"
           ls -lh HaNhayVIP.tipa
 
-      # ── 9. Upload artifact ────────────────────────────────────────
       - name: Upload TIPA
         uses: actions/upload-artifact@v4
         with:
-          name: HaNhayVIP-TrollStore
-          path: HaNhayVIP.tipa
+          name: HaNhayVIP-PureSwift-TrollStore
+          path: native/HaNhayVIP.tipa
           retention-days: 30

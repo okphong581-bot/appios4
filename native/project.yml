@@ -1,0 +1,28 @@
+name: HaNhayVIP
+options:
+  bundleIdPrefix: com.hanhay
+  deploymentTarget:
+    iOS: "14.0"
+settings:
+  base:
+    TARGETED_DEVICE_FAMILY: 1,2
+    SWIFT_VERSION: "5.0"
+    INFOPLIST_FILE: Resources/Info.plist
+    CODE_SIGN_ENTITLEMENTS: Resources/entitlements.plist
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+targets:
+  HaNhayVIP:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        type: group
+    resources:
+      - path: Resources
+        type: group
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hanhay.vip
+        GENERATE_INFOPLIST_FILE: "NO"

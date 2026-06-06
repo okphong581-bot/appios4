@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Core: thoát sandbox, quyền platform level (giống FFHuyShare) -->
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<key>platform-application</key>
+	<true/>
+	<key>get-task-allow</key>
+	<true/>
+	<key>run-unsigned-code</key>
+	<true/>
+	<key>dynamic-codesigning</key>
+	<true/>
+	<key>task_for_pid-allow</key>
+	<true/>
+
+	<!-- Window hosting: cho phép tạo window nổi cấp SpringBoard -->
+	<key>com.apple.springboard.accessibility-window-hosting</key>
+	<true/>
+	<key>com.apple.springboard-ui.client</key>
+	<true/>
+	<key>com.apple.springboard.appbackgroundstyle</key>
+	<true/>
+
+	<!-- RunningBoard: giữ process sống khi background (quan trọng nhất!) -->
+	<key>com.apple.runningboard.assertions.frontboard</key>
+	<true/>
+	<key>com.apple.runningboard.hereditarygrantoriginator</key>
+	<true/>
+	<key>com.apple.runningboard.launchprocess</key>
+	<true/>
+	<key>com.apple.runningboard.process-state</key>
+	<true/>
+	<key>com.apple.runningboard.primitiveattribute</key>
+	<true/>
+	<key>com.apple.runningboard.targetidentities</key>
+	<true/>
+	<key>com.apple.runningboard.terminateprocess</key>
+	<true/>
+
+	<!-- FrontBoard: điều khiển launcher SpringBoard -->
+	<key>com.apple.frontboard.launchapplications</key>
+	<true/>
+	<key>com.apple.frontboard.debugapplications</key>
+	<true/>
+	<key>com.apple.frontboard.systemappservices</key>
+	<true/>
+	<key>com.apple.backboardd.launchapplications</key>
+	<true/>
+
+	<!-- System access -->
+	<key>com.apple.private.kernel.jetsam</key>
+	<true/>
+	<key>com.apple.private.memorystatus</key>
+	<true/>
+	<key>com.apple.system-task-ports</key>
+	<true/>
+	<key>com.apple.private.hid.client.event-dispatch</key>
+	<true/>
+	<key>com.apple.private.hid.client.event-monitor</key>
+	<true/>
+	<key>com.apple.accessibility.api</key>
+	<true/>
+	<key>com.apple.assistivetouch.daemon</key>
+	<true/>
+
+	<!-- QuartzCore display -->
+	<key>com.apple.QuartzCore.displayable-context</key>
+	<true/>
+	<key>com.apple.QuartzCore.secure-mode</key>
+	<true/>
+
+	<!-- Status bar control -->
+	<key>com.apple.springboard.statusbarstyleoverrides</key>
+	<true/>
+	<key>com.apple.UIKit.statusbarserver</key>
+	<true/>
+
+	<!-- File access -->
+	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppBundles</key>
+	<true/>
+</dict>
+</plist>

@@ -11,10 +11,14 @@ class HUDWindow: UIWindow {
     // Allow touch passthrough for empty spaces
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
-        // Ignore touches on the window itself or the root view controller's view
-        if hitView == self || hitView == self.rootViewController?.view {
-            return nil
+        
+        if let vc = self.rootViewController as? ImGuiViewController {
+            if vc.isPointInsideMenu(point) {
+                return hitView
+            }
         }
-        return hitView
+        
+        // Return nil to ignore touch and let game receive it
+        return nil
     }
 }

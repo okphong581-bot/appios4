@@ -12,6 +12,8 @@ settings:
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGN_IDENTITY: ""
+    SWIFT_OBJC_BRIDGING_HEADER: "Sources/HaNhayVIP-Bridging-Header.h"
+    ENABLE_BITCODE: "NO"
 targets:
   HaNhayVIP:
     type: application
@@ -20,6 +22,11 @@ targets:
       - path: Sources
     resources:
       - path: Resources
+    dependencies:
+      - framework: Metal.framework
+        implicit: true
+      - framework: MetalKit.framework
+        implicit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hanhay.vip

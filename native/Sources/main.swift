@@ -3,6 +3,7 @@ import UIKit
 import Darwin
 
 var globalHUDDelegate: HUDAppDelegate?
+var globalGetDeviceOrientation: (@convention(c) () -> Int)?
 
 // Lấy tham số command line
 let args = CommandLine.arguments
@@ -28,10 +29,15 @@ if args.count > 1 && args[1] == "-hud" {
         gsInit()
     }
     
-    if let handle = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW),
-       let sym = dlsym(handle, "BKSDisplayServicesStart") {
-        let bksStart = unsafeBitCast(sym, to: (@convention(c) () -> Void).self)
-        bksStart()
+    if let bksHandle = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW) {
+        if let sym = dlsym(bksHandle, "BKSDisplayServicesStart") {
+            let bksStart = unsafeBitCast(sym, to: (@convention(c) () -> Void).self)
+            bksStart()
+        }
+        
+        if let symOrient = dlsym(bksHandle, "BKSHIDServicesGetNonFlatDeviceOrientation") {
+            globalGetDeviceOrientation = unsafeBitCast(symOrient, to: (@convention(c) () -> Int).self)
+        }
     }
     
     UIApplicationInitialize()

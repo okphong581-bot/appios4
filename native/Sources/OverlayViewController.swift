@@ -204,7 +204,7 @@ class OverlayViewController: UIViewController {
     @objc func handleRotation() {
         // UIDevice.current.orientation đôi khi bị lỗi trong daemon.
         // Sử dụng private API của BackBoardServices để lấy góc quay thật của phần cứng.
-        let rawOrientation = BKSHIDServicesGetNonFlatDeviceOrientation()
+        let rawOrientation = globalGetDeviceOrientation?() ?? 0
         let orientation = UIDeviceOrientation(rawValue: rawOrientation) ?? .unknown
         
         var angle: CGFloat = 0

@@ -48,10 +48,7 @@ class OverlayWindowManager {
     /// Lưu tham chiếu đến Window Scene hiện tại từ SceneDelegate
     func setScene(_ scene: UIWindowScene) {
         self.activeScene = scene
-        // Nếu overlay đang hiển thị, cập nhật scene cho nó
-        if let window = overlayWindow {
-            window.windowScene = scene
-        }
+        // CHÚ Ý: KHÔNG gán windowScene cho overlay để tránh bị ẩn khi app chính vào background
     }
     
     // ──────────────────────────────────────────────────────────────
@@ -80,10 +77,8 @@ class OverlayWindowManager {
         let window = UIWindow(frame: initialFrame)
         window.backgroundColor = .clear
         
-        // Liên kết Window Scene
-        if #available(iOS 13.0, *), let scene = activeScene {
-            window.windowScene = scene
-        }
+        // CHÚ Ý: KHÔNG gán windowScene cho overlayWindow. 
+        // Quyền 'com.apple.springboard.accessibility-window-hosting' sẽ tự vẽ đè lên hệ thống ở background.
         
         // Thiết lập cấp độ cửa sổ cao nhất (nằm trên cả status bar và các alert chuẩn)
         // Hệ thống sẽ cho phép nếu app có entitlement no-sandbox / TrollStore

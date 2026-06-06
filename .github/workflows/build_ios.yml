@@ -70,8 +70,9 @@ jobs:
           done
 
           echo "📜 Apply TrollStore entitlements with ldid..."
-          EXEC=$(find Payload/*.app -type f -perm +111 | grep -v "\." | head -n 1)
-          if [ -z "$EXEC" ]; then
+          EXEC="Payload/HaNhayVIP.app/HaNhayVIP"
+          
+          if [ ! -f "$EXEC" ]; then
             echo "Cannot find executable in Payload"
             ls -la Payload/HaNhayVIP.app/
             exit 1

@@ -10,11 +10,26 @@ class HUDWindow: UIWindow {
     
     // Cho phép click xuyên qua những khoảng trống (không có UI)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hitView = super.hitTest(point, with: event)
-        // Nếu hitView là chính window (tức là chạm vào chỗ trống), cho xuyên qua
-        if hitView == self {
+        // Mặc định UIWindow sẽ chặn touch nếu point nằm ngoài bounds của nó.
+        // Trong chế độ daemon, toạ độ touch có thể bị lộn ngược do xoay màn hình, 
+        // khiến point nằm ngoài bounds của UIWindow gốc.
+        // Giải pháp: Duyệt qua tất cả các view con để tìm view có thể nhận touch.
+        
+        guard let root = self.rootViewController?.view else {
             return nil
         }
-        return hitView
+        
+        // Chuyển point sang toạ độ của root view
+        let rootPoint = self.convert(point, to: root)
+        
+        if let hitView = root.hitTest(rootPoint, with: event) {
+            // Nếu chạm vào chính root view (trong suốt) thì bỏ qua
+            if hitView == root {
+                return nil
+            }
+            return hitView
+        }
+        
+        return nil
     }
 }

@@ -35,9 +35,9 @@ class OverlayWindowManager {
         // Cấp quyền persona để chạy daemon cấp hệ thống
         var attr: posix_spawnattr_t? = nil
         posix_spawnattr_init(&attr)
-        posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
-        posix_spawnattr_set_persona_uid_np(&attr, 0)
-        posix_spawnattr_set_persona_gid_np(&attr, 0)
+        _ = posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
+        _ = posix_spawnattr_set_persona_uid_np(&attr, 0)
+        _ = posix_spawnattr_set_persona_gid_np(&attr, 0)
         
         // Lấy đường dẫn file thực thi hiện tại
         var executablePath = [CChar](repeating: 0, count: 1024)
@@ -82,9 +82,9 @@ class OverlayWindowManager {
         
         var attr: posix_spawnattr_t? = nil
         posix_spawnattr_init(&attr)
-        posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
-        posix_spawnattr_set_persona_uid_np(&attr, 0)
-        posix_spawnattr_set_persona_gid_np(&attr, 0)
+        _ = posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
+        _ = posix_spawnattr_set_persona_uid_np(&attr, 0)
+        _ = posix_spawnattr_set_persona_gid_np(&attr, 0)
         
         var executablePath = [CChar](repeating: 0, count: 1024)
         var executablePathSize: UInt32 = 1024

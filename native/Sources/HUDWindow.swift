@@ -13,7 +13,7 @@ class HUDWindow: UIWindow {
         let hitView = super.hitTest(point, with: event)
         
         if let vc = self.rootViewController as? ImGuiViewController {
-            if vc.isPointInsideMenu(point) {
+            if vc.isPoint(insideMenu: point) {
                 return hitView
             }
         }

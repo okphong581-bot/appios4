@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Darwin
 
 let POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE: UInt32 = 1
 

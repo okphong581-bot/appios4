@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Darwin
 
 struct OverlayError {
     let code: String

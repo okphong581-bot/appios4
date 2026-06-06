@@ -27,6 +27,8 @@ jobs:
       - name: Build iOS release
         working-directory: native
         run: |
+          set -e
+          set -o pipefail
           xcodebuild build \
             -project HaNhayVIP.xcodeproj \
             -scheme HaNhayVIP \
@@ -37,7 +39,11 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             SYMROOT=$PWD/build \
-            2>&1 | tee xcodebuild_log.txt
+            2>&1 | tee xcodebuild_log.txt || {
+              echo "XCODEBUILD FAILED! Check log:"
+              cat xcodebuild_log.txt
+              exit 1
+            }
           
           if [ ! -d "build/Release-iphoneos/HaNhayVIP.app" ]; then
             echo "BUILD FAILED! Check log:"

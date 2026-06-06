@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Darwin
 
 // Lấy tham số command line
 let args = CommandLine.arguments

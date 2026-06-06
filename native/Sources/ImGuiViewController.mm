@@ -101,7 +101,7 @@
         // --- RENDER MOD MENU ---
         if (self.showMenu) {
             ImGui::SetNextWindowSize(ImVec2(350, 450), ImGuiCond_FirstUseEver);
-            ImGui::Begin("HaNhayVIP MOD", &self.showMenu, ImGuiWindowFlags_NoCollapse);
+            ImGui::Begin("HaNhayVIP MOD", &_showMenu, ImGuiWindowFlags_NoCollapse);
             
             ImVec2 pos = ImGui::GetWindowPos();
             ImVec2 size = ImGui::GetWindowSize();

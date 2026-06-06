@@ -33,7 +33,7 @@ class OverlayWindowManager {
         }
         
         // Cấp quyền persona để chạy daemon cấp hệ thống
-        var attr = posix_spawnattr_t(nil)
+        var attr: posix_spawnattr_t? = nil
         posix_spawnattr_init(&attr)
         posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
         posix_spawnattr_set_persona_uid_np(&attr, 0)
@@ -42,7 +42,7 @@ class OverlayWindowManager {
         // Lấy đường dẫn file thực thi hiện tại
         var executablePath = [CChar](repeating: 0, count: 1024)
         var executablePathSize: UInt32 = 1024
-        _NSGetExecutablePath(&executablePath, &executablePathSize)
+        _ = _NSGetExecutablePath(&executablePath, &executablePathSize)
         
         let args = [String(cString: executablePath), "-hud"]
         var cArgs = args.map { strdup($0) }
@@ -80,7 +80,7 @@ class OverlayWindowManager {
             return
         }
         
-        var attr = posix_spawnattr_t(nil)
+        var attr: posix_spawnattr_t? = nil
         posix_spawnattr_init(&attr)
         posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
         posix_spawnattr_set_persona_uid_np(&attr, 0)
@@ -88,7 +88,7 @@ class OverlayWindowManager {
         
         var executablePath = [CChar](repeating: 0, count: 1024)
         var executablePathSize: UInt32 = 1024
-        _NSGetExecutablePath(&executablePath, &executablePathSize)
+        _ = _NSGetExecutablePath(&executablePath, &executablePathSize)
         
         let args = [String(cString: executablePath), "-exit"]
         var cArgs = args.map { strdup($0) }
@@ -123,5 +123,9 @@ class OverlayWindowManager {
     
     func savePositionIfNeeded() {
         // Không cần làm gì
+    }
+    
+    func savePosition(_ point: CGPoint) {
+        // Có thể lưu UserDefaults nếu cần
     }
 }

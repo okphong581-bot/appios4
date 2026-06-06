@@ -10,7 +10,7 @@ class HUDWindow: UIWindow {
     
     // Cho phép click xuyên qua những khoảng trống (không có UI)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hitView = super.hitTest(point, with event: event)
+        let hitView = super.hitTest(point, with: event)
         // Nếu hitView là chính window (tức là chạm vào chỗ trống), cho xuyên qua
         if hitView == self {
             return nil

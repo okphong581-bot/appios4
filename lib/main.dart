@@ -1,76 +1,157 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'screens/home_screen.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Thanh trạng thái trong suốt, icon sáng
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
-    ),
-  );
-
-  runApp(const HaFloatingApp());
+  runApp(const MyApp());
 }
 
-class HaFloatingApp extends StatelessWidget {
-  const HaFloatingApp({super.key});
-
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Hà Nhạy VIP',
+      title: 'In-App Mod Menu',
       debugShowCheckedModeBanner: false,
-      theme: _buildDarkTheme(),
-      home: const HomeScreen(),
+      theme: ThemeData.dark(),
+      home: const ModMenuOverlay(
+        child: MainAppScreen(),
+      ),
+    );
+  }
+}
+
+class MainAppScreen extends StatelessWidget {
+  const MainAppScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Ứng dụng chính', style: TextStyle(color: Colors.green)),
+        backgroundColor: Colors.grey[900],
+        centerTitle: true,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.gamepad, size: 100, color: Colors.white54),
+            SizedBox(height: 20),
+            Text(
+              'Đây là ứng dụng bình thường.\nMenu  đã được gắn chết bên trong App!',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70, fontSize: 18),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ModMenuOverlay extends StatefulWidget {
+  final Widget child;
+  const ModMenuOverlay({super.key, required this.child});
+
+  @override
+  State<ModMenuOverlay> createState() => _ModMenuOverlayState();
+}
+
+class _ModMenuOverlayState extends State<ModMenuOverlay> {
+  Offset position = const Offset(20, 150);
+  bool isMenuOpen = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        widget.child,
+        Positioned(
+          left: position.dx,
+          top: position.dy,
+          child: GestureDetector(
+            onPanUpdate: (details) {
+              setState(() {
+                position += details.delta;
+              });
+            },
+            child: Material(
+              color: Colors.transparent,
+              child: isMenuOpen ? _buildExpandedMenu() : _buildFloatingButton(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  ThemeData _buildDarkTheme() {
-    return ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-      colorScheme: const ColorScheme.dark(
-        primary: Color(0xFF9D6AFA),
-        secondary: Color(0xFFFA6AE3),
-        surface: Color(0xFF12101A),
-        surfaceContainerHighest: Color(0xFF1E1B2E),
-        onPrimary: Colors.white,
-        onSurface: Colors.white,
-      ),
-      scaffoldBackgroundColor: const Color(0xFF0D0B16),
-      fontFamily: 'SF Pro Display',
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.5,
-          color: Colors.white,
+  Widget _buildFloatingButton() {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          isMenuOpen = true;
+        });
+      },
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          color: Colors.green,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: const [
+            BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 4)),
+          ],
         ),
-        titleLarge: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 15,
-          color: Color(0xFFB8B0D0),
+        child: const Center(
+          child: Text('', style: TextStyle(fontSize: 30, color: Colors.black)),
         ),
       ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF9D6AFA),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+    );
+  }
+
+  Widget _buildExpandedMenu() {
+    return Container(
+      width: 250,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.green, width: 2),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 20),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Mod Menu VIP', style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.red),
+                onPressed: () {
+                  setState(() {
+                    isMenuOpen = false;
+                  });
+                },
+              )
+            ],
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-          elevation: 0,
-        ),
+          const Divider(color: Colors.white24),
+          ListTile(
+            leading: const Icon(Icons.security, color: Colors.blue),
+            title: const Text('Bật Hack VIP', style: TextStyle(color: Colors.white, fontSize: 14)),
+            trailing: Switch(value: true, activeColor: Colors.green, onChanged: (v){}),
+            contentPadding: EdgeInsets.zero,
+          ),
+          ListTile(
+            leading: const Icon(Icons.speed, color: Colors.orange),
+            title: const Text('Tốc Độ x2', style: TextStyle(color: Colors.white, fontSize: 14)),
+            trailing: Switch(value: false, activeColor: Colors.green, onChanged: (v){}),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ],
       ),
     );
   }

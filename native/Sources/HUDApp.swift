@@ -15,8 +15,8 @@ class HUDAppDelegate: UIResponder, UIApplicationDelegate {
         let bundle = Bundle(path: "/System/Library/PrivateFrameworks/SpringBoardServices.framework")
         bundle?.load()
         
-        // Khởi tạo cửa sổ overlay nổi nhỏ gọn
-        let overlayWindow = HUDWindow(frame: CGRect(x: 20, y: 100, width: 170, height: 55))
+        // Khởi tạo cửa sổ overlay nổi full màn hình để dễ xoay
+        let overlayWindow = HUDWindow(frame: UIScreen.main.bounds)
         
         overlayWindow.rootViewController = OverlayViewController()
         overlayWindow.windowLevel = UIWindow.Level(rawValue: 10_000_010)

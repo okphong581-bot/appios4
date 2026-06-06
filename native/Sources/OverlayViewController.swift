@@ -4,45 +4,24 @@ class OverlayViewController: UIViewController {
 
     private lazy var container: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(red: 0.07, green: 0.05, blue: 0.17, alpha: 0.93)
-        v.layer.cornerRadius = 18
-        v.layer.borderWidth = 1.5
-        v.layer.borderColor = UIColor(red: 0.62, green: 0.42, blue: 0.98, alpha: 0.85).cgColor
-        v.layer.shadowColor   = UIColor(red: 0.62, green: 0.42, blue: 0.98, alpha: 0.9).cgColor
-        v.layer.shadowOpacity = 0.9
-        v.layer.shadowRadius  = 12
-        v.layer.shadowOffset  = .zero
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
-    private lazy var dot: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor(red: 0.2, green: 1.0, blue: 0.55, alpha: 1.0)
-        v.layer.cornerRadius = 4.5
-        v.layer.shadowColor   = UIColor(red: 0.2, green: 1.0, blue: 0.55, alpha: 1.0).cgColor
-        v.layer.shadowOpacity = 1.0
-        v.layer.shadowRadius  = 5
-        v.layer.shadowOffset  = .zero
-        v.translatesAutoresizingMaskIntoConstraints = false
+        v.backgroundColor = .clear // Trong suốt hoàn toàn
+        v.translatesAutoresizingMaskIntoConstraints = true
         return v
     }()
 
     private lazy var label: UILabel = {
         let l = UILabel()
         l.text = "Hà Mods"
-        l.textColor = .white
-        l.font      = .systemFont(ofSize: 14, weight: .heavy)
-        l.textAlignment = .left
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private lazy var dragIcon: UILabel = {
-        let l = UILabel()
-        l.text      = "⠿"
-        l.textColor = UIColor.white.withAlphaComponent(0.35)
-        l.font      = .systemFont(ofSize: 16)
+        l.textColor = UIColor(red: 0.2, green: 1.0, blue: 0.55, alpha: 1.0)
+        l.font = UIFont(name: "AvenirNext-HeavyItalic", size: 24) ?? .systemFont(ofSize: 24, weight: .heavy)
+        l.textAlignment = .center
+        
+        // Tạo viền/shadow phát sáng đẹp mắt để dễ nhìn trên nền trắng/đen
+        l.layer.shadowColor = UIColor.black.cgColor
+        l.layer.shadowOffset = CGSize(width: 1, height: 1)
+        l.layer.shadowOpacity = 0.8
+        l.layer.shadowRadius = 3
+        
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
@@ -50,49 +29,32 @@ class OverlayViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        buildLayout()
-        attachGesture()
-        animateDot()
         
+        // Thêm các view
+        view.addSubview(container)
+        container.addSubview(label)
+
+        // Căn giữa label trong container
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+        ])
+        
+        // Đặt vị trí ban đầu cho container (ví dụ: góc trên bên trái)
+        container.frame = CGRect(x: 40, y: 100, width: 150, height: 50)
+        
+        attachGesture()
+        startColorAnimation()
+        
+        // Đăng ký nhận sự kiện xoay màn hình
         NotificationCenter.default.addObserver(self, selector: #selector(handleRotation), name: UIDevice.orientationDidChangeNotification, object: nil)
+        
+        // Cập nhật hướng xoay ngay lần đầu
+        handleRotation()
     }
     
-    @objc private func handleRotation() {
-        guard let w = view.window else { return }
-        let s = UIScreen.main.bounds
-        var o = w.frame.origin
-        
-        // Ensure window stays within screen bounds after rotation
-        o.x = min(o.x, s.width - w.frame.width)
-        o.y = min(o.y, s.height - w.frame.height)
-        
-        UIView.animate(withDuration: 0.3) {
-            w.frame.origin = o
-        }
-    }
-
-    private func buildLayout() {
-        view.addSubview(container)
-        [dot, label, dragIcon].forEach { container.addSubview($0) }
-
-        NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 2),
-            container.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -2),
-            container.topAnchor.constraint(equalTo: view.topAnchor, constant: 2),
-            container.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -2),
-
-            dot.widthAnchor.constraint(equalToConstant: 9),
-            dot.heightAnchor.constraint(equalToConstant: 9),
-            dot.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            dot.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
-
-            label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 9),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            dragIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            dragIcon.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            dragIcon.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 8),
-        ])
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func attachGesture() {
@@ -102,35 +64,66 @@ class OverlayViewController: UIViewController {
     }
 
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
-        guard let w = view.window else { return }
         let t = g.translation(in: view)
-        let s = UIScreen.main.bounds
+        let s = view.bounds.size
 
         switch g.state {
         case .began:
             UIView.animate(withDuration: 0.15) {
-                self.container.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+                self.container.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
             }
         case .changed:
-            var o = w.frame.origin
-            o.x = max(0, min(o.x + t.x, s.width  - w.frame.width))
-            o.y = max(60, min(o.y + t.y, s.height - w.frame.height))
-            w.frame.origin = o
+            var c = container.center
+            c.x += t.x
+            c.y += t.y
+            
+            // Giới hạn không cho kéo container ra ngoài màn hình
+            c.x = max(container.bounds.width / 2, min(c.x, s.width - container.bounds.width / 2))
+            c.y = max(container.bounds.height / 2, min(c.y, s.height - container.bounds.height / 2))
+            
+            container.center = c
             g.setTranslation(.zero, in: view)
+            
         case .ended, .cancelled:
             UIView.animate(withDuration: 0.2) {
                 self.container.transform = .identity
             }
-            OverlayWindowManager.shared.savePosition(w.frame.origin)
+            OverlayWindowManager.shared.savePosition(container.frame.origin)
         default: break
         }
     }
-
-    private func animateDot() {
-        UIView.animate(withDuration: 0.9, delay: 0,
-                       options: [.repeat, .autoreverse, .allowUserInteraction,
-                                 .curveEaseInOut]) {
-            self.dot.alpha = 0.15
+    
+    @objc private func handleRotation() {
+        let orientation = UIDevice.current.orientation
+        var angle: CGFloat = 0
+        
+        switch orientation {
+        case .landscapeLeft:
+            angle = .pi / 2
+        case .landscapeRight:
+            angle = -.pi / 2
+        case .portraitUpsideDown:
+            angle = .pi
+        default:
+            angle = 0
         }
+        
+        UIView.animate(withDuration: 0.3) {
+            // Xoay toàn bộ view chính để các thành phần bên trong xoay theo
+            self.view.transform = CGAffineTransform(rotationAngle: angle)
+            
+            // Đảm bảo container không bị văng ra khỏi màn hình sau khi xoay
+            let s = UIScreen.main.bounds.size
+            var c = self.container.center
+            c.x = max(self.container.bounds.width / 2, min(c.x, s.width - self.container.bounds.width / 2))
+            c.y = max(self.container.bounds.height / 2, min(c.y, s.height - self.container.bounds.height / 2))
+            self.container.center = c
+        }
+    }
+
+    private func startColorAnimation() {
+        UIView.animate(withDuration: 2.0, delay: 0, options: [.repeat, .autoreverse, .allowUserInteraction], animations: {
+            self.label.textColor = UIColor(red: 1.0, green: 0.2, blue: 0.55, alpha: 1.0)
+        }, completion: nil)
     }
 }

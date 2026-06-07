@@ -89,6 +89,16 @@ struct FakePlayer {
     var hp: CGFloat
     var normCenter: CGPoint
     var size: CGSize
+    var bones: [String: CGPoint]? = nil
+    
+    init(name: String, distance: String, hp: CGFloat, normCenter: CGPoint, size: CGSize, bones: [String: CGPoint]? = nil) {
+        self.name = name
+        self.distance = distance
+        self.hp = hp
+        self.normCenter = normCenter
+        self.size = size
+        self.bones = bones
+    }
 }
 
 class OverlayViewController: UIViewController, DraggableViewDelegate {
@@ -484,10 +494,25 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         fakePlayers[2].normCenter = CGPoint(x: 0.5 + 0.12 * sin(tickCount * 0.8), y: 0.6 + 0.04 * cos(tickCount * 1.8))
     }
     
+    private func getBoneScreenPos(mesh: UInt64, boneArr: UInt64, c2w: UInt64, offset: UInt64, camPos: Vector3, camRot: Vector3, fov: Float, screen: CGRect) -> CGPoint? {
+        let boneAddr = boneArr + offset
+        guard let bx = MemoryReader.shared.read(address: boneAddr + 0x10, type: Float.self),
+              let by = MemoryReader.shared.read(address: boneAddr + 0x14, type: Float.self),
+              let bz = MemoryReader.shared.read(address: boneAddr + 0x18, type: Float.self) else { return nil }
+              
+        guard let wx = MemoryReader.shared.read(address: c2w + 0x20, type: Float.self),
+              let wy = MemoryReader.shared.read(address: c2w + 0x24, type: Float.self),
+              let wz = MemoryReader.shared.read(address: c2w + 0x28, type: Float.self) else { return nil }
+              
+        let worldPos = Vector3(x: bx + wx, y: by + wy, z: bz + wz)
+        return worldToScreen(world: worldPos, camPos: camPos, camRot: camRot, fov: fov, sw: Float(screen.width), sh: Float(screen.height))
+    }
+    
     /// Trích xuất và đọc trực tiếp từ bộ nhớ game Free Fire dựa trên offsets của GWorld
     private func readRealPlayersFromGame() {
+        let base = MemoryReader.shared.unityBaseAddress
         // Địa chỉ cơ sở GWorld của game (offset: 0x04A0B0C0)
-        let gworldAddr: UInt64 = 0x100000000 + 0x04A0B0C0
+        let gworldAddr: UInt64 = base + 0x04A0B0C0
         guard let gworld = MemoryReader.shared.read(address: gworldAddr, type: UInt64.self), gworld != 0 else {
             MemoryReader.shared.detach() // Rớt kết nối
             return
@@ -498,7 +523,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         guard let arrayAddr = MemoryReader.shared.read(address: level + 0x98, type: UInt64.self), arrayAddr != 0 else { return }
         
         // Đọc thông tin Camera ngắm
-        let localPlayerPtrAddr: UInt64 = 0x100000000 + 0xB0
+        let localPlayerPtrAddr: UInt64 = base + 0xB0
         guard let localPlayer = MemoryReader.shared.read(address: localPlayerPtrAddr, type: UInt64.self), localPlayer != 0 else { return }
         guard let cameraAddr = MemoryReader.shared.read(address: localPlayer + 0x5A8, type: UInt64.self), cameraAddr != 0 else { return }
         guard let camPos = MemoryReader.shared.read(address: cameraAddr, type: Vector3.self) else { return }
@@ -518,14 +543,15 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             guard let mesh = MemoryReader.shared.read(address: entAddr + 0x310, type: UInt64.self), mesh != 0 else { continue }
             guard let boneArr = MemoryReader.shared.read(address: mesh + 0x600, type: UInt64.self), boneArr != 0 else { continue }
             
+            // Phép nhân ComponentToWorld Matrix
+            guard let c2w = MemoryReader.shared.read(address: mesh + 0x1E0, type: UInt64.self), c2w != 0 else { continue }
+            
             // Đọc vị trí tương đối xương đầu
             let headBoneAddr = boneArr + 0x5B8
             guard let bx = MemoryReader.shared.read(address: headBoneAddr + 0x10, type: Float.self),
                   let by = MemoryReader.shared.read(address: headBoneAddr + 0x14, type: Float.self),
                   let bz = MemoryReader.shared.read(address: headBoneAddr + 0x18, type: Float.self) else { continue }
             
-            // Phép nhân ComponentToWorld Matrix
-            guard let c2w = MemoryReader.shared.read(address: mesh + 0x1E0, type: UInt64.self), c2w != 0 else { continue }
             guard let wx = MemoryReader.shared.read(address: c2w + 0x20, type: Float.self),
                   let wy = MemoryReader.shared.read(address: c2w + 0x24, type: Float.self),
                   let wz = MemoryReader.shared.read(address: c2w + 0x28, type: Float.self) else { continue }
@@ -548,7 +574,30 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             let boxWidth = boxHeight * 0.5
             let normCenter = CGPoint(x: screenPos.x / screen.width, y: screenPos.y / screen.height)
             
-            let p = FakePlayer(name: name, distance: "\(distance)m", hp: 1.0, normCenter: normCenter, size: CGSize(width: boxWidth, height: boxHeight))
+            // Đọc thêm tất cả các khớp xương thực tế nếu ESP Skeleton được bật
+            var bones: [String: CGPoint]? = nil
+            if hackStates["ESP Skeleton"] == true {
+                var tempBones: [String: CGPoint] = [:]
+                let boneOffsets: [String: UInt64] = [
+                    "head": 0x5B8,
+                    "chest": 0x5C8,
+                    "hip": 0x5C0,
+                    "leftShoulder": 0x620,
+                    "rightShoulder": 0x628,
+                    "leftHand": 0x638,
+                    "rightHand": 0x630,
+                    "leftAnkle": 0x5F0,
+                    "rightAnkle": 0x5F8
+                ]
+                for (name, offset) in boneOffsets {
+                    if let pt = getBoneScreenPos(mesh: mesh, boneArr: boneArr, c2w: c2w, offset: offset, camPos: camPos, camRot: camRot, fov: camFov, screen: screen) {
+                        tempBones[name] = pt
+                    }
+                }
+                bones = tempBones
+            }
+            
+            let p = FakePlayer(name: name, distance: "\(distance)m", hp: 1.0, normCenter: normCenter, size: CGSize(width: boxWidth, height: boxHeight), bones: bones)
             activePlayers.append(p)
         }
         
@@ -647,33 +696,72 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             // Skeleton
             if hackStates["ESP Skeleton"] == true {
                 let path = UIBezierPath()
-                let headRadius = pw * 0.15
-                let headCenter = CGPoint(x: px, y: rect.minY + headRadius)
-                path.addArc(withCenter: headCenter, radius: headRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
-                
-                let neck = CGPoint(x: px, y: rect.minY + headRadius * 2)
-                let pelvis = CGPoint(x: px, y: rect.minY + ph * 0.6)
-                path.move(to: neck)
-                path.addLine(to: pelvis)
-                
-                let leftShoulder = CGPoint(x: px - pw * 0.35, y: rect.minY + ph * 0.25)
-                let rightShoulder = CGPoint(x: px + pw * 0.35, y: rect.minY + ph * 0.25)
-                path.move(to: leftShoulder)
-                path.addLine(to: rightShoulder)
-                
-                let leftHand = CGPoint(x: px - pw * 0.45, y: rect.minY + ph * 0.45)
-                let rightHand = CGPoint(x: px + pw * 0.45, y: rect.minY + ph * 0.45)
-                path.move(to: leftShoulder)
-                path.addLine(to: leftHand)
-                path.move(to: rightShoulder)
-                path.addLine(to: rightHand)
-                
-                let leftFoot = CGPoint(x: px - pw * 0.3, y: rect.maxY)
-                let rightFoot = CGPoint(x: px + pw * 0.3, y: rect.maxY)
-                path.move(to: pelvis)
-                path.addLine(to: leftFoot)
-                path.move(to: pelvis)
-                path.addLine(to: rightFoot)
+                if let bones = player.bones, !bones.isEmpty {
+                    // Vẽ các xương thực tế đọc từ bộ nhớ game
+                    if let head = bones["head"] {
+                        let headRadius = pw * 0.15
+                        path.move(to: CGPoint(x: head.x + headRadius, y: head.y))
+                        path.addArc(withCenter: head, radius: headRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+                        
+                        if let chest = bones["chest"] {
+                            path.move(to: head)
+                            path.addLine(to: chest)
+                        }
+                    }
+                    if let chest = bones["chest"], let hip = bones["hip"] {
+                        path.move(to: chest)
+                        path.addLine(to: hip)
+                    }
+                    if let leftShoulder = bones["leftShoulder"], let rightShoulder = bones["rightShoulder"] {
+                        path.move(to: leftShoulder)
+                        path.addLine(to: rightShoulder)
+                    }
+                    if let leftShoulder = bones["leftShoulder"], let leftHand = bones["leftHand"] {
+                        path.move(to: leftShoulder)
+                        path.addLine(to: leftHand)
+                    }
+                    if let rightShoulder = bones["rightShoulder"], let rightHand = bones["rightHand"] {
+                        path.move(to: rightShoulder)
+                        path.addLine(to: rightHand)
+                    }
+                    if let hip = bones["hip"], let leftAnkle = bones["leftAnkle"] {
+                        path.move(to: hip)
+                        path.addLine(to: leftAnkle)
+                    }
+                    if let hip = bones["hip"], let rightAnkle = bones["rightAnkle"] {
+                        path.move(to: hip)
+                        path.addLine(to: rightAnkle)
+                    }
+                } else {
+                    // Vẽ các xương giả lập (khi game không chạy)
+                    let headRadius = pw * 0.15
+                    let headCenter = CGPoint(x: px, y: rect.minY + headRadius)
+                    path.addArc(withCenter: headCenter, radius: headRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+                    
+                    let neck = CGPoint(x: px, y: rect.minY + headRadius * 2)
+                    let pelvis = CGPoint(x: px, y: rect.minY + ph * 0.6)
+                    path.move(to: neck)
+                    path.addLine(to: pelvis)
+                    
+                    let leftShoulder = CGPoint(x: px - pw * 0.35, y: rect.minY + ph * 0.25)
+                    let rightShoulder = CGPoint(x: px + pw * 0.35, y: rect.minY + ph * 0.25)
+                    path.move(to: leftShoulder)
+                    path.addLine(to: rightShoulder)
+                    
+                    let leftHand = CGPoint(x: px - pw * 0.45, y: rect.minY + ph * 0.45)
+                    let rightHand = CGPoint(x: px + pw * 0.45, y: rect.minY + ph * 0.45)
+                    path.move(to: leftShoulder)
+                    path.addLine(to: leftHand)
+                    path.move(to: rightShoulder)
+                    path.addLine(to: rightHand)
+                    
+                    let leftFoot = CGPoint(x: px - pw * 0.3, y: rect.maxY)
+                    let rightFoot = CGPoint(x: px + pw * 0.3, y: rect.maxY)
+                    path.move(to: pelvis)
+                    path.addLine(to: leftFoot)
+                    path.move(to: pelvis)
+                    path.addLine(to: rightFoot)
+                }
                 
                 let shape = CAShapeLayer()
                 shape.path = path.cgPath

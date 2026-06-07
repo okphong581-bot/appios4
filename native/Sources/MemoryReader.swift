@@ -18,7 +18,7 @@ class MemoryReader {
     func findGameProcess() -> pid_t? {
         let targets = ["freefire", "freefiremax"]
         
-        var mib = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
         guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return nil }
         
@@ -27,10 +27,11 @@ class MemoryReader {
         guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return nil }
         
         for proc in procs {
-            let procName = withUnsafeBytes(of: proc.kp_proc.p_comm) { (rawBuffer) -> String in
-                guard let baseAddress = rawBuffer.baseAddress else { return "" }
-                let ptr = baseAddress.assumingMemoryBound(to: CChar.self)
-                return String(cString: ptr)
+            var comm = proc.kp_proc.p_comm
+            let procName = withUnsafePointer(to: &comm) { ptr in
+                ptr.withMemoryRebound(to: CChar.self, capacity: 16) { cStr in
+                    String(cString: cStr)
+                }
             }
             
             for target in targets {
@@ -47,12 +48,11 @@ class MemoryReader {
         if isAttached { return true }
         
         guard let pid = findGameProcess() else {
-            print("[MemoryReader] Không tìm thấy tiến trình Free Fire.")
             return false
         }
         
         var port: mach_port_t = 0
-        let kr = task_for_pid(mach_task_self_, pid, &port)
+        let kr = task_for_pid(mach_task_self(), pid, &port)
         if kr == KERN_SUCCESS {
             self.taskPort = port
             self.gamePid = pid
@@ -60,7 +60,7 @@ class MemoryReader {
             print("[MemoryReader] Đã kết nối thành công tới PID: \(pid), Base Address: 0x\(String(unityBaseAddress, radix: 16))")
             return true
         } else {
-            print("[MemoryReader] Lỗi task_for_pid: \(kr). Đảm bảo thiết bị đã jailbreak hoặc cài qua TrollStore có entitlements task-ports.")
+            print("[MemoryReader] Lỗi task_for_pid: \(kr)")
             return false
         }
     }
@@ -68,7 +68,7 @@ class MemoryReader {
     /// Ngắt kết nối
     func detach() {
         if taskPort != 0 {
-            mach_port_deallocate(mach_task_self_, taskPort)
+            mach_port_deallocate(mach_task_self(), taskPort)
             taskPort = 0
             gamePid = 0
             unityBaseAddress = 0
@@ -88,7 +88,7 @@ class MemoryReader {
         if kr == KERN_SUCCESS {
             let ptr = UnsafeRawPointer(bitPattern: vmData)!
             data = Data(bytes: ptr, count: Int(bytesRead))
-            vm_deallocate(mach_task_self_, vmData, vm_size_t(bytesRead))
+            vm_deallocate(mach_task_self(), vm_address_t(vmData), vm_size_t(bytesRead))
             return data
         }
         return nil
@@ -96,25 +96,72 @@ class MemoryReader {
     
     /// Đọc một giá trị kiểu Generic (Int, Float, UInt64...)
     func read<T>(address: UInt64, type: T.Type) -> T? {
-        guard let data = readBytes(address: address, size: MemoryLayout<T>.size) else { return nil }
-        return data.withUnsafeBytes { $0.load(as: T.self) }
+        guard let data = readBytes(address: address, size: MemoryLayout<T>.size),
+              data.count >= MemoryLayout<T>.size else { return nil }
+        let pointer = UnsafeMutablePointer<T>.allocate(capacity: 1)
+        defer { pointer.deallocate() }
+        let buffer = UnsafeMutableBufferPointer(start: pointer, count: 1)
+        _ = data.copyBytes(to: buffer)
+        return pointer.pointee
     }
     
     /// Đọc chuỗi ký tự UTF-8 (Tên người chơi...)
     func readString(address: UInt64, maxLength: Int = 32) -> String? {
-        guard let data = readBytes(address: address, size: maxLength) else { return nil }
-        return data.withUnsafeBytes { (rawBuffer) -> String? in
-            guard let baseAddress = rawBuffer.baseAddress else { return nil }
-            let ptr = baseAddress.assumingMemoryBound(to: CChar.self)
-            return String(cString: ptr)
+        guard let data = readBytes(address: address, size: maxLength), !data.isEmpty else { return nil }
+        if let nullIndex = data.firstIndex(of: 0) {
+            return String(decoding: data.subdata(in: 0..<nullIndex), as: UTF8.self)
         }
+        return String(decoding: data, as: UTF8.self)
     }
     
     /// Lấy địa chỉ Base của game (Mach-O Header)
     private func getBaseAddress(pid: pid_t) -> UInt64 {
-        // Mặc định địa chỉ nạp tối thiểu của ứng dụng 64-bit trên iOS thường là 0x100000000
-        // Trong môi trường TrollStore thoát sandbox, chúng ta có thể trả về giá trị mặc định này
-        // hoặc đọc vùng nhớ để định dạng header.
+        // Sử dụng cấu trúc task_dyld_info để lấy danh sách ảnh nạp của tiến trình game
+        let TASK_DYLD_INFO_FLAVOR: task_flavor_t = 17
+        struct MyTaskDyldInfo {
+            var all_image_info_addr: mach_vm_address_t
+            var all_image_info_size: mach_vm_size_t
+            var all_image_info_format: integer_t
+        }
+        
+        var dyldInfo = MyTaskDyldInfo(all_image_info_addr: 0, all_image_info_size: 0, all_image_info_format: 0)
+        var count = mach_msg_type_number_t(MemoryLayout<MyTaskDyldInfo>.size / MemoryLayout<natural_t>.size)
+        
+        let kr = withUnsafeMutablePointer(to: &dyldInfo) { (infoPtr) -> kern_return_t in
+            let intPtr = UnsafeMutableRawPointer(infoPtr).assumingMemoryBound(to: integer_t.self)
+            return task_info(taskPort, TASK_DYLD_INFO_FLAVOR, intPtr, &count)
+        }
+        
+        guard kr == KERN_SUCCESS else {
+            return 0x100000000 // Trả về địa chỉ tĩnh mặc định làm fallback
+        }
+        
+        let allImageInfoAddr = dyldInfo.all_image_info_addr
+        guard allImageInfoAddr != 0 else { return 0x100000000 }
+        
+        // Đọc cấu trúc dyld_all_image_infos trong tiến trình đích
+        // dyld_all_image_infos: uint32_t version (offset 0), uint32_t infoArrayCount (offset 4), uintptr_t infoArray (offset 8)
+        guard let infoCount = read(address: allImageInfoAddr + 4, type: UInt32.self),
+              let infoArray = read(address: allImageInfoAddr + 8, type: UInt64.self) else {
+            return 0x100000000
+        }
+        
+        // Duyệt qua danh sách để tìm module game chính
+        for i in 0..<min(infoCount, 500) {
+            let infoAddr = infoArray + UInt64(i * 24) // sizeof(dyld_image_info) = 24 trên iOS 64-bit
+            guard let loadAddr = read(address: infoAddr, type: UInt64.self),
+                  let filePathPtr = read(address: infoAddr + 8, type: UInt64.self) else {
+                continue
+            }
+            
+            if let path = readString(address: filePathPtr, maxLength: 256) {
+                let lowerPath = path.lowercased()
+                if lowerPath.contains("freefire") {
+                    return loadAddr
+                }
+            }
+        }
+        
         return 0x100000000
     }
     

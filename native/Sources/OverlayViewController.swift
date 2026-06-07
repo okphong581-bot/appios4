@@ -615,12 +615,12 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         let yaw = camRot.y * .pi / 180.0
         let pitch = camRot.x * .pi / 180.0
         
-        let cy = cos(yaw), sy = sin(yaw)
+        let cy = cos(yaw), syVal = sin(yaw)
         let cp = cos(pitch), sp = sin(pitch)
         
-        let fwd = Vector3(x: cp * cy, y: cp * sy, z: sp)
-        let right = Vector3(x: -sy, y: cy, z: 0)
-        let up = Vector3(x: -sp * cy, y: -sp * sy, z: cp)
+        let fwd = Vector3(x: cp * cy, y: cp * syVal, z: sp)
+        let right = Vector3(x: -syVal, y: cy, z: 0)
+        let up = Vector3(x: -sp * cy, y: -sp * syVal, z: cp)
         
         let df = d.dot(fwd)
         if df < 0.1 { return nil }
@@ -632,10 +632,10 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         let hf = (fov / 2.0) * .pi / 180.0
         let tanHf = tan(hf)
         
-        let sx = (dr / df) / tanHf * (sw / 2.0) + (sw / 2.0)
-        let sy = -(du / df) / tanHf * asp * (sh / 2.0) + (sh / 2.0)
+        let screenX = (dr / df) / tanHf * (sw / 2.0) + (sw / 2.0)
+        let screenY = -(du / df) / tanHf * asp * (sh / 2.0) + (sh / 2.0)
         
-        return CGPoint(x: CGFloat(sx), y: CGFloat(sy))
+        return CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
     }
     
     private func updateESPDrawing() {

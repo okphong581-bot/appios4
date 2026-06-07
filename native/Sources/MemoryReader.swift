@@ -6,7 +6,7 @@ class MemoryReader {
     
     private var taskPort: mach_port_t = 0
     private var gamePid: pid_t = 0
-    private var unityBaseAddress: UInt64 = 0
+    private(set) var unityBaseAddress: UInt64 = 0
     
     var isAttached: Bool {
         return taskPort != 0
@@ -52,7 +52,7 @@ class MemoryReader {
         }
         
         var port: mach_port_t = 0
-        let kr = task_for_pid(mach_task_self(), pid, &port)
+        let kr = task_for_pid(mach_task_self_, pid, &port)
         if kr == KERN_SUCCESS {
             self.taskPort = port
             self.gamePid = pid
@@ -68,7 +68,7 @@ class MemoryReader {
     /// Ngắt kết nối
     func detach() {
         if taskPort != 0 {
-            mach_port_deallocate(mach_task_self(), taskPort)
+            mach_port_deallocate(mach_task_self_, taskPort)
             taskPort = 0
             gamePid = 0
             unityBaseAddress = 0
@@ -88,7 +88,7 @@ class MemoryReader {
         if kr == KERN_SUCCESS {
             let ptr = UnsafeRawPointer(bitPattern: vmData)!
             data = Data(bytes: ptr, count: Int(bytesRead))
-            vm_deallocate(mach_task_self(), vm_address_t(vmData), vm_size_t(bytesRead))
+            vm_deallocate(mach_task_self_, vm_address_t(vmData), vm_size_t(bytesRead))
             return data
         }
         return nil

@@ -69,6 +69,20 @@ class HackSwitch: UISwitch {
     var hackTitle: String = ""
 }
 
+struct Vector3 {
+    var x: Float = 0
+    var y: Float = 0
+    var z: Float = 0
+    
+    static func -(left: Vector3, right: Vector3) -> Vector3 {
+        return Vector3(x: left.x - right.x, y: left.y - right.y, z: left.z - right.z)
+    }
+    
+    func dot(_ other: Vector3) -> Float {
+        return x * other.x + y * other.y + z * other.z
+    }
+}
+
 struct FakePlayer {
     var name: String
     var distance: String
@@ -250,6 +264,9 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         FakePlayer(name: "👑 ProPlayer", distance: "88m", hp: 1.0, normCenter: CGPoint(x: 0.5, y: 0.6), size: CGSize(width: 25, height: 50))
     ]
     
+    private var updateTimer: Timer?
+    private var tickCount: CGFloat = 0
+    
     func updateDebugText(_ text: String) {
         DispatchQueue.main.async {
             self.debugLabel.text = text
@@ -292,11 +309,17 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, darwinNotificationCallback, "com.apple.springboard.rawOrientation" as CFString, nil, .deliverImmediately)
         
+        // Bắt đầu vòng lặp quét bộ nhớ Game / Giả lập ESP ở 60 FPS (16ms)
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+            self?.tickMemoryScan()
+        }
+        
         handleRotation()
         updateESPDrawing()
     }
     
     deinit {
+        updateTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, CFNotificationName("com.apple.springboard.rawOrientation" as CFString), nil)
@@ -437,6 +460,135 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         }
     }
     
+    /// Vòng lặp chính quét bộ nhớ RAM thật / Hoạt cảnh giả lập
+    private func tickMemoryScan() {
+        // Cố gắng kết nối vào tiến trình game Free Fire
+        if !MemoryReader.shared.isAttached {
+            _ = MemoryReader.shared.attach()
+        }
+        
+        if MemoryReader.shared.isAttached {
+            readRealPlayersFromGame()
+        } else {
+            // Chạy hoạt cảnh giả lập nếu game chưa mở để người dùng test UI
+            animateFakePlayers()
+        }
+        
+        updateESPDrawing()
+    }
+    
+    private func animateFakePlayers() {
+        tickCount += 0.02
+        fakePlayers[0].normCenter = CGPoint(x: 0.35 + 0.1 * sin(tickCount), y: 0.4 + 0.05 * cos(tickCount))
+        fakePlayers[1].normCenter = CGPoint(x: 0.65 + 0.08 * cos(tickCount * 1.5), y: 0.45 + 0.06 * sin(tickCount * 1.2))
+        fakePlayers[2].normCenter = CGPoint(x: 0.5 + 0.12 * sin(tickCount * 0.8), y: 0.6 + 0.04 * cos(tickCount * 1.8))
+    }
+    
+    /// Trích xuất và đọc trực tiếp từ bộ nhớ game Free Fire dựa trên offsets của GWorld
+    private func readRealPlayersFromGame() {
+        // Địa chỉ cơ sở GWorld của game (offset: 0x04A0B0C0)
+        let gworldAddr: UInt64 = 0x100000000 + 0x04A0B0C0
+        guard let gworld = MemoryReader.shared.read(address: gworldAddr, type: UInt64.self), gworld != 0 else {
+            MemoryReader.shared.detach() // Rớt kết nối
+            return
+        }
+        
+        guard let level = MemoryReader.shared.read(address: gworld + 0x30, type: UInt64.self), level != 0 else { return }
+        guard let count = MemoryReader.shared.read(address: level + 0xA0, type: Int32.self), count > 0 else { return }
+        guard let arrayAddr = MemoryReader.shared.read(address: level + 0x98, type: UInt64.self), arrayAddr != 0 else { return }
+        
+        // Đọc thông tin Camera ngắm
+        let localPlayerPtrAddr: UInt64 = 0x100000000 + 0xB0
+        guard let localPlayer = MemoryReader.shared.read(address: localPlayerPtrAddr, type: UInt64.self), localPlayer != 0 else { return }
+        guard let cameraAddr = MemoryReader.shared.read(address: localPlayer + 0x5A8, type: UInt64.self), cameraAddr != 0 else { return }
+        guard let camPos = MemoryReader.shared.read(address: cameraAddr, type: Vector3.self) else { return }
+        guard let camRot = MemoryReader.shared.read(address: cameraAddr + 0x53C, type: Vector3.self) else { return }
+        guard let camFov = MemoryReader.shared.read(address: cameraAddr + 0x28, type: Float.self), camFov > 10 else { return }
+        
+        var activePlayers: [FakePlayer] = []
+        let screen = UIScreen.main.bounds
+        
+        for i in 0..<min(Int(count), 50) {
+            guard let entAddr = MemoryReader.shared.read(address: arrayAddr + UInt64(i * 8), type: UInt64.self), entAddr != 0 else { continue }
+            if entAddr == localPlayer { continue }
+            
+            guard let isDead = MemoryReader.shared.read(address: entAddr + 0x74, type: Int32.self), isDead != 1 else { continue }
+            
+            // Lấy mesh xương
+            guard let mesh = MemoryReader.shared.read(address: entAddr + 0x310, type: UInt64.self), mesh != 0 else { continue }
+            guard let boneArr = MemoryReader.shared.read(address: mesh + 0x600, type: UInt64.self), boneArr != 0 else { continue }
+            
+            // Đọc vị trí tương đối xương đầu
+            let headBoneAddr = boneArr + 0x5B8
+            guard let bx = MemoryReader.shared.read(address: headBoneAddr + 0x10, type: Float.self),
+                  let by = MemoryReader.shared.read(address: headBoneAddr + 0x14, type: Float.self),
+                  let bz = MemoryReader.shared.read(address: headBoneAddr + 0x18, type: Float.self) else { continue }
+            
+            // Phép nhân ComponentToWorld Matrix
+            guard let c2w = MemoryReader.shared.read(address: mesh + 0x1E0, type: UInt64.self), c2w != 0 else { continue }
+            guard let wx = MemoryReader.shared.read(address: c2w + 0x20, type: Float.self),
+                  let wy = MemoryReader.shared.read(address: c2w + 0x24, type: Float.self),
+                  let wz = MemoryReader.shared.read(address: c2w + 0x28, type: Float.self) else { continue }
+            
+            let worldHead = Vector3(x: bx + wx, y: by + wy, z: bz + wz)
+            
+            // Chiếu lên màn hình 2D
+            guard let screenPos = worldToScreen(world: worldHead, camPos: camPos, camRot: camRot, fov: camFov, sw: Float(screen.width), sh: Float(screen.height)) else { continue }
+            
+            // Đọc tên đối thủ
+            let name = MemoryReader.shared.readString(address: entAddr + 0x3C0, maxLength: 16) ?? "Enemy_\(i)"
+            
+            // Khoảng cách thực tế
+            let dx = worldHead.x - camPos.x
+            let dy = worldHead.y - camPos.y
+            let dz = worldHead.z - camPos.z
+            let distance = Int(sqrt(dx*dx + dy*dy + dz*dz))
+            
+            let boxHeight = CGFloat(1200 / max(distance, 1))
+            let boxWidth = boxHeight * 0.5
+            let normCenter = CGPoint(x: screenPos.x / screen.width, y: screenPos.y / screen.height)
+            
+            let p = FakePlayer(name: name, distance: "\(distance)m", hp: 1.0, normCenter: normCenter, size: CGSize(width: boxWidth, height: boxHeight))
+            activePlayers.append(p)
+        }
+        
+        if !activePlayers.isEmpty {
+            self.fakePlayers = activePlayers
+            updateDebugText("HuyShare ESP: Đã tìm thấy \(activePlayers.count) đối thủ.")
+        } else {
+            updateDebugText("HuyShare ESP: Đang quét phòng chơi...")
+        }
+    }
+    
+    /// Giải thuật WorldToScreen chuyển đổi toạ độ 3D game sang 2D màn hình
+    private func worldToScreen(world: Vector3, camPos: Vector3, camRot: Vector3, fov: Float, sw: Float, sh: Float) -> CGPoint? {
+        let d = world - camPos
+        let yaw = camRot.y * .pi / 180.0
+        let pitch = camRot.x * .pi / 180.0
+        
+        let cy = cos(yaw), sy = sin(yaw)
+        let cp = cos(pitch), sp = sin(pitch)
+        
+        let fwd = Vector3(x: cp * cy, y: cp * sy, z: sp)
+        let right = Vector3(x: -sy, y: cy, z: 0)
+        let up = Vector3(x: -sp * cy, y: -sp * sy, z: cp)
+        
+        let df = d.dot(fwd)
+        if df < 0.1 { return nil }
+        
+        let dr = d.dot(right)
+        let du = d.dot(up)
+        
+        let asp = sw / sh
+        let hf = (fov / 2.0) * .pi / 180.0
+        let tanHf = tan(hf)
+        
+        let sx = (dr / df) / tanHf * (sw / 2.0) + (sw / 2.0)
+        let sy = -(du / df) / tanHf * asp * (sh / 2.0) + (sh / 2.0)
+        
+        return CGPoint(x: CGFloat(sx), y: CGFloat(sy))
+    }
+    
     private func updateESPDrawing() {
         espLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
         espView.subviews.forEach { if $0 != debugLabel { $0.removeFromSuperview() } }
@@ -459,7 +611,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             espLayer.addSublayer(shape)
         }
         
-        // 2. Draw Fake Players
+        // 2. Draw Players
         for player in fakePlayers {
             let px = player.normCenter.x * screenBounds.width
             let py = player.normCenter.y * screenBounds.height

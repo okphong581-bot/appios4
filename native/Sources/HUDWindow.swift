@@ -6,33 +6,17 @@ class HUDWindow: UIWindow {
     @objc func _isSystemWindow() -> Bool { return true }
     @objc func _isWindowServerHostingManaged() -> Bool { return false }
     @objc func _isSecure() -> Bool { return true }
-    override var canBecomeKeyWindow: Bool {
-        return true
-    }
+    @objc func _shouldCreateContextAsSecure() -> Bool { return true }
     
-    @objc func _ignoresHitTest() -> Bool {
-        return false
-    }
-
-    // Xác định điểm chạm có nằm trong khu vực tương tác hay không
-    override func pointInside(_ point: CGPoint, with event: UIEvent?) -> Bool {
-        if let vc = self.rootViewController as? OverlayViewController {
-            vc.updateDebugText("pointInside called at:\n X: \(Int(point.x)), Y: \(Int(point.y))")
-        }
-        
-        let inside = super.pointInside(point, with: event)
-        return inside
-    }
-
-    // Trả về View thực sự bắt sự kiện
+    // Cho phép click xuyên qua những khoảng trống (không có UI)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if let vc = self.rootViewController as? OverlayViewController {
-            vc.updateDebugText("hitTest called at:\n X: \(Int(point.x)), Y: \(Int(point.y))\nEvent: \(event?.type.rawValue ?? -1)")
+            vc.updateDebugText("hitTest called at:\n X: \(Int(point.x)), Y: \(Int(point.y))\nEvent: \(String(describing: event))")
         }
         
         let hitView = super.hitTest(point, with: event)
         
-        // Nếu điểm chạm rơi vào chính Window hoặc View gốc có nền trong suốt -> Bỏ qua để xuyên qua Game
+        // Nếu hitView là chính window hoặc view nền của root view controller (tức là chạm vào chỗ trống), cho xuyên qua
         if hitView == self || hitView == self.rootViewController?.view {
             return nil
         }

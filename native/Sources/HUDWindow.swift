@@ -6,7 +6,7 @@ class HUDWindow: UIWindow {
     @objc func _isSystemWindow() -> Bool { return true }
     @objc func _isWindowServerHostingManaged() -> Bool { return false }
     @objc func _isSecure() -> Bool { return true }
-    override var canBecomeKey: Bool {
+    override var canBecomeKeyWindow: Bool {
         return true
     }
     

@@ -23,10 +23,9 @@ targets:
     resources:
       - path: Resources
     dependencies:
-      - framework: Metal.framework
-        implicit: true
-      - framework: MetalKit.framework
-        implicit: true
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hanhay.vip

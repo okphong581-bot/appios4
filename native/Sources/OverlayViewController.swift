@@ -242,7 +242,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     
     private lazy var footerLabel: UILabel = {
         let l = UILabel()
-        l.text = "Trạng thái: Bypassed Anti-Cheat"
+        l.text = "🛡️ Bypass Anti-Cheat | Anti-Ban 100% | Secure Window"
         l.textColor = .green
         l.font = UIFont.systemFont(ofSize: 9, weight: .semibold)
         l.textAlignment = .center
@@ -268,11 +268,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         "Teleport": false
     ]
     
-    private var fakePlayers: [FakePlayer] = [
-        FakePlayer(name: "🎯 HuyShare_VIP", distance: "12m", hp: 0.9, normCenter: CGPoint(x: 0.35, y: 0.4), size: CGSize(width: 50, height: 100)),
-        FakePlayer(name: "💀 Bot_99", distance: "45m", hp: 0.3, normCenter: CGPoint(x: 0.65, y: 0.45), size: CGSize(width: 35, height: 70)),
-        FakePlayer(name: "👑 ProPlayer", distance: "88m", hp: 1.0, normCenter: CGPoint(x: 0.5, y: 0.6), size: CGSize(width: 25, height: 50))
-    ]
+    private var fakePlayers: [FakePlayer] = []
     
     private var updateTimer: Timer?
     private var tickCount: CGFloat = 0
@@ -480,18 +476,10 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         if MemoryReader.shared.isAttached {
             readRealPlayersFromGame()
         } else {
-            // Chạy hoạt cảnh giả lập nếu game chưa mở để người dùng test UI
-            animateFakePlayers()
+            self.fakePlayers = []
         }
         
         updateESPDrawing()
-    }
-    
-    private func animateFakePlayers() {
-        tickCount += 0.02
-        fakePlayers[0].normCenter = CGPoint(x: 0.35 + 0.1 * sin(tickCount), y: 0.4 + 0.05 * cos(tickCount))
-        fakePlayers[1].normCenter = CGPoint(x: 0.65 + 0.08 * cos(tickCount * 1.5), y: 0.45 + 0.06 * sin(tickCount * 1.2))
-        fakePlayers[2].normCenter = CGPoint(x: 0.5 + 0.12 * sin(tickCount * 0.8), y: 0.6 + 0.04 * cos(tickCount * 1.8))
     }
     
     private func getBoneScreenPos(mesh: UInt64, boneArr: UInt64, c2w: UInt64, offset: UInt64, camPos: Vector3, camRot: Vector3, fov: Float, screen: CGRect) -> CGPoint? {

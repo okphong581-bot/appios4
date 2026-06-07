@@ -101,6 +101,23 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     
     private var isEspVisible = false
 
+    private lazy var debugLabel: UILabel = {
+        let l = UILabel(frame: CGRect(x: 10, y: 50, width: 300, height: 60))
+        l.textColor = .green
+        l.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        l.numberOfLines = 0
+        l.font = UIFont.systemFont(ofSize: 12)
+        l.text = "Debug: UI Running..."
+        return l
+    }()
+    
+    // Khai báo public để HUDWindow có thể gọi cập nhật
+    func updateDebugText(_ text: String) {
+        DispatchQueue.main.async {
+            self.debugLabel.text = text
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -113,6 +130,9 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         menuButton.delegate = self
         view.addSubview(menuButton)
         menuButton.addSubview(menuLabel)
+        
+        // Setup Debug Label
+        view.addSubview(debugLabel)
         
         // Căn giữa text trong menu
         NSLayoutConstraint.activate([

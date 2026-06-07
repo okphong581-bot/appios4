@@ -2,12 +2,6 @@ import UIKit
 
 class HUDWindow: UIWindow {
     
-    // Override các hàm private để iOS hiểu đây là cửa sổ hệ thống (không bị ẩn)
-    @objc func _isSystemWindow() -> Bool { return true }
-    @objc func _isWindowServerHostingManaged() -> Bool { return false }
-    @objc func _isSecure() -> Bool { return true }
-    @objc func _shouldCreateContextAsSecure() -> Bool { return true }
-    
     // Cho phép click xuyên qua những khoảng trống (không có UI)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if let vc = self.rootViewController as? OverlayViewController {

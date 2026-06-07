@@ -3,6 +3,7 @@
 #import <MetalKit/MetalKit.h>
 #import "ImGui/imgui.h"
 #import "ImGui/imgui_impl_metal.h"
+#import <QuartzCore/QuartzCore.h>
 
 @interface ImGuiViewController () <MTKViewDelegate>
 @property (nonatomic, strong) MTKView *mtkView;
@@ -101,7 +102,9 @@
         // --- RENDER MOD MENU ---
         if (self.showMenu) {
             ImGui::SetNextWindowSize(ImVec2(350, 450), ImGuiCond_FirstUseEver);
-            ImGui::Begin("HaNhayVIP MOD", &_showMenu, ImGuiWindowFlags_NoCollapse);
+            bool bShow = _showMenu;
+            ImGui::Begin("HaNhayVIP MOD", &bShow, ImGuiWindowFlags_NoCollapse);
+            _showMenu = bShow;
             
             ImVec2 pos = ImGui::GetWindowPos();
             ImVec2 size = ImGui::GetWindowSize();
@@ -159,7 +162,7 @@
     ImGuiIO& io = ImGui::GetIO();
     for (UITouch *touch in touches) {
         CGPoint p = [touch locationInView:self.view];
-        io.AddMousePosEvent(p.x, p.y);
+        io.AddMousePosEvent((float)p.x, (float)p.y);
         
         if (touch.phase == UITouchPhaseBegan) {
             io.AddMouseButtonEvent(0, true);

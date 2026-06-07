@@ -9,10 +9,66 @@ private func darwinNotificationCallback(center: CFNotificationCenter?, observer:
     }
 }
 
-class OverlayViewController: UIViewController {
+protocol DraggableViewDelegate: AnyObject {
+    func didTap(view: DraggableView)
+    func didDrag(view: DraggableView, to center: CGPoint)
+    func didEndDrag(view: DraggableView)
+}
 
-    private lazy var menuButton: UIView = {
-        let v = UIView()
+class DraggableView: UIView {
+    weak var delegate: DraggableViewDelegate?
+    private var startLocation: CGPoint = .zero
+    private var startCenter: CGPoint = .zero
+    private var isDragging = false
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        startLocation = touch.location(in: self.superview)
+        startCenter = self.center
+        isDragging = false
+        
+        UIView.animate(withDuration: 0.15) {
+            self.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+        }
+    }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: self.superview)
+        
+        let dx = location.x - startLocation.x
+        let dy = location.y - startLocation.y
+        let distance = hypot(dx, dy)
+        
+        if distance > 5 {
+            isDragging = true
+            let newCenter = CGPoint(x: startCenter.x + dx, y: startCenter.y + dy)
+            self.center = newCenter
+            delegate?.didDrag(view: self, to: newCenter)
+        }
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        UIView.animate(withDuration: 0.2) {
+            self.transform = .identity
+        }
+        if !isDragging {
+            delegate?.didTap(view: self)
+        } else {
+            delegate?.didEndDrag(view: self)
+        }
+        isDragging = false
+    }
+    
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        touchesEnded(touches, with: event)
+    }
+}
+
+class OverlayViewController: UIViewController, DraggableViewDelegate {
+
+    private lazy var menuButton: DraggableView = {
+        let v = DraggableView()
         v.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
         v.layer.cornerRadius = 25
         v.layer.borderWidth = 1.5
@@ -54,6 +110,7 @@ class OverlayViewController: UIViewController {
         setupFakeESP()
         
         // Setup Menu Button
+        menuButton.delegate = self
         view.addSubview(menuButton)
         menuButton.addSubview(menuLabel)
         
@@ -65,8 +122,6 @@ class OverlayViewController: UIViewController {
         
         // Kích thước và vị trí ban đầu của menu
         menuButton.frame = CGRect(x: 40, y: 100, width: 70, height: 50)
-        
-        attachGesture()
         
         // Bắt đầu nhận diện hướng xoay màn hình (dự phòng)
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
@@ -150,65 +205,30 @@ class OverlayViewController: UIViewController {
         return container
     }
 
-    private func attachGesture() {
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
-        pan.maximumNumberOfTouches = 1
-        menuButton.addGestureRecognizer(pan)
-    }
+    // MARK: - DraggableViewDelegate
     
-    // Tap logic is now handled in onPan if the pan distance is very small
-
-    @objc private func onTap() {
+    func didTap(view: DraggableView) {
         isEspVisible.toggle()
         UIView.transition(with: espView, duration: 0.3, options: .transitionCrossDissolve, animations: {
             self.espView.isHidden = !self.isEspVisible
         }, completion: nil)
         
-        // Đổi màu viền menu để biết đang bật hay tắt
         UIView.animate(withDuration: 0.3) {
             self.menuButton.layer.borderColor = self.isEspVisible ? UIColor.green.cgColor : UIColor.systemBlue.cgColor
             self.menuButton.layer.shadowColor = self.isEspVisible ? UIColor.green.cgColor : UIColor.systemBlue.cgColor
         }
     }
-
-    private var panStartLocation: CGPoint = .zero
-
-    @objc private func onPan(_ g: UIPanGestureRecognizer) {
-        let location = g.location(in: view)
-        let s = view.bounds.size
-
-        switch g.state {
-        case .began:
-            panStartLocation = location
-            UIView.animate(withDuration: 0.15) {
-                self.menuButton.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
-            }
-        case .changed:
-            let t = g.translation(in: view)
-            var c = menuButton.center
-            c.x += t.x
-            c.y += t.y
-            
-            // Giới hạn không cho kéo ra ngoài màn hình
-            c.x = max(menuButton.bounds.width / 2, min(c.x, s.width - menuButton.bounds.width / 2))
-            c.y = max(menuButton.bounds.height / 2, min(c.y, s.height - menuButton.bounds.height / 2))
-            
-            menuButton.center = c
-            g.setTranslation(.zero, in: view)
-            
-        case .ended, .cancelled:
-            UIView.animate(withDuration: 0.2) {
-                self.menuButton.transform = .identity
-            }
-            OverlayWindowManager.shared.savePosition(menuButton.frame.origin)
-            
-            // Xử lý như một cú chạm (Tap) nếu khoảng cách di chuyển rất nhỏ
-            let distance = hypot(location.x - panStartLocation.x, location.y - panStartLocation.y)
-            if distance < 10 {
-                onTap()
-            }
-        default: break
-        }
+    
+    func didDrag(view: DraggableView, to center: CGPoint) {
+        let s = self.view.bounds.size
+        var c = center
+        c.x = max(menuButton.bounds.width / 2, min(c.x, s.width - menuButton.bounds.width / 2))
+        c.y = max(menuButton.bounds.height / 2, min(c.y, s.height - menuButton.bounds.height / 2))
+        menuButton.center = c
+    }
+    
+    func didEndDrag(view: DraggableView) {
+        OverlayWindowManager.shared.savePosition(menuButton.frame.origin)
     }
     
     @objc func handleRotation() {

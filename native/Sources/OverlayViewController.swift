@@ -141,7 +141,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         ])
         
         // Kích thước và vị trí ban đầu của menu
-        menuButton.frame = CGRect(x: 40, y: 100, width: 70, height: 50)
+        let initialPos = OverlayWindowManager.shared.loadPosition()
+        menuButton.frame = CGRect(origin: initialPos, size: CGSize(width: 70, height: 50))
         
         // Bắt đầu nhận diện hướng xoay màn hình (dự phòng)
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()

@@ -1,6 +1,5 @@
 import Foundation
 import UIKit
-import Darwin
 
 struct OverlayError {
     let code: String
@@ -10,122 +9,108 @@ struct OverlayError {
 class OverlayWindowManager {
     static let shared = OverlayWindowManager()
     
-    // Đường dẫn PID file
-    private let pidPath = "/var/mobile/Library/Caches/ch.xxtou.hudapp.pid"
+    private var overlayWindow: HUDWindow?
+    
+    private let kPositionX = "ha_overlay_position_x"
+    private let kPositionY = "ha_overlay_position_y"
     
     var isOverlayVisible: Bool {
-        if let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
-           let pid = Int32(pidString) {
-            let killed = kill(pid, 0)
-            return killed == 0
-        }
-        return false
+        return overlayWindow != nil && !overlayWindow!.isHidden
     }
-
+    
     private init() {
     }
-
-    // Khởi chạy tiến trình Daemon (-hud)
+    
     func showOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
-        if isOverlayVisible {
+        guard overlayWindow == nil else {
             completion(true, nil)
             return
         }
         
-        // Cấp quyền persona để chạy daemon cấp hệ thống
-        var attr: posix_spawnattr_t? = nil
-        posix_spawnattr_init(&attr)
-        _ = posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
-        _ = posix_spawnattr_set_persona_uid_np(&attr, 0)
-        _ = posix_spawnattr_set_persona_gid_np(&attr, 0)
+        // Kích hoạt audio chạy ngầm để giữ app không bị iOS đình chỉ (suspend)
+        BackgroundAudioPlayer.shared.start()
         
-        // Lấy đường dẫn file thực thi hiện tại
-        var executablePath = [CChar](repeating: 0, count: 1024)
-        var executablePathSize: UInt32 = 1024
-        _ = _NSGetExecutablePath(&executablePath, &executablePathSize)
+        // Sử dụng một cửa sổ toàn màn hình để chứa cả menu kéo thả và các nét vẽ ESP sau này
+        let window = HUDWindow(frame: UIScreen.main.bounds)
+        window.backgroundColor = .clear
         
-        let args = [String(cString: executablePath), "-hud"]
-        var cArgs = args.map { strdup($0) }
-        cArgs.append(nil)
+        // CHÚ Ý: KHÔNG gán windowScene cho overlayWindow để tránh bị ẩn khi app chính vào background.
+        // Quyền 'com.apple.springboard.accessibility-window-hosting' sẽ tự vẽ đè lên hệ thống ở background.
+        window.windowLevel = UIWindow.Level(rawValue: 10_000_010)
+        window.rootViewController = OverlayViewController()
+        window.isUserInteractionEnabled = true
+        window.isHidden = false
         
-        // Cần truyền environment variables
-        var envs = [UnsafeMutablePointer<CChar>?]()
-        let envDict = ProcessInfo.processInfo.environment
-        for (key, value) in envDict {
-            envs.append(strdup("\(key)=\(value)"))
-        }
-        envs.append(nil)
+        // Làm cửa sổ trở thành key window để nhận bàn phím/touch tốt hơn
+        window.makeKeyAndVisible()
+        window.makeKey()
         
-        var task_pid: pid_t = 0
-        let rc = posix_spawn(&task_pid, executablePath, nil, &attr, &cArgs, &envs)
+        self.overlayWindow = window
         
-        posix_spawnattr_destroy(&attr)
-        
-        for arg in cArgs { free(arg) }
-        for env in envs { free(env) }
-        
-        if rc == 0 {
-            print("[HUDManager] Đã khởi chạy daemon thành công, PID: \(task_pid)")
-            completion(true, nil)
-        } else {
-            print("[HUDManager] Lỗi khởi chạy daemon: \(rc)")
-            completion(false, OverlayError(code: "\(rc)", message: "posix_spawn error"))
-        }
+        print("[HUDManager] Đã hiển thị overlay trực tiếp từ App chính với Background Audio.")
+        completion(true, nil)
     }
-
-    // Tắt tiến trình Daemon (-exit)
+    
     func hideOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
-        if !isOverlayVisible {
+        guard let window = overlayWindow else {
             completion(true, nil)
             return
         }
         
-        var attr: posix_spawnattr_t? = nil
-        posix_spawnattr_init(&attr)
-        _ = posix_spawnattr_set_persona_np(&attr, 99, POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE)
-        _ = posix_spawnattr_set_persona_uid_np(&attr, 0)
-        _ = posix_spawnattr_set_persona_gid_np(&attr, 0)
+        window.isHidden = true
+        self.overlayWindow = nil
         
-        var executablePath = [CChar](repeating: 0, count: 1024)
-        var executablePathSize: UInt32 = 1024
-        _ = _NSGetExecutablePath(&executablePath, &executablePathSize)
+        // Dừng phát âm thanh chạy ngầm
+        BackgroundAudioPlayer.shared.stop()
         
-        let args = [String(cString: executablePath), "-exit"]
-        var cArgs = args.map { strdup($0) }
-        cArgs.append(nil)
-        
-        // Environment variables
-        var envs = [UnsafeMutablePointer<CChar>?]()
-        for (key, value) in ProcessInfo.processInfo.environment {
-            envs.append(strdup("\(key)=\(value)"))
-        }
-        envs.append(nil)
-        
-        var task_pid: pid_t = 0
-        let rc = posix_spawn(&task_pid, executablePath, nil, &attr, &cArgs, &envs)
-        
-        posix_spawnattr_destroy(&attr)
-        for arg in cArgs { free(arg) }
-        for env in envs { free(env) }
-        
-        if rc == 0 {
-            // Chờ một chút để lệnh kill thực thi xong
-            Thread.sleep(forTimeInterval: 0.1)
-            completion(true, nil)
-        } else {
-            completion(false, OverlayError(code: "\(rc)", message: "posix_spawn error"))
-        }
+        print("[HUDManager] Đã ẩn overlay và dừng Background Audio.")
+        completion(true, nil)
     }
-
-    func syncOverlayState() {
-        // Không cần làm gì
+    
+    func toggleOverlay(completion: @escaping (Bool, OverlayError?) -> Void) {
+        if isOverlayVisible {
+            hideOverlay { success, error in
+                completion(!success, error)
+            }
+        } else {
+            showOverlay { success, error in
+                completion(success, error)
+            }
+        }
     }
     
     func savePositionIfNeeded() {
-        // Không cần làm gì
+        if let vc = overlayWindow?.rootViewController as? OverlayViewController,
+           let menuButton = vc.view.subviews.first(where: { $0 is DraggableView }) {
+            savePosition(menuButton.frame.origin)
+        }
+    }
+    
+    func syncOverlayState() {
+        if isOverlayVisible {
+            BackgroundAudioPlayer.shared.start()
+        }
     }
     
     func savePosition(_ point: CGPoint) {
-        // Có thể lưu UserDefaults nếu cần
+        UserDefaults.standard.set(Double(point.x), forKey: kPositionX)
+        UserDefaults.standard.set(Double(point.y), forKey: kPositionY)
+        UserDefaults.standard.synchronize()
+    }
+    
+    func loadPosition() -> CGPoint {
+        let screen = UIScreen.main.bounds
+        let defaultX = (screen.width - 70) / 2
+        let defaultY: CGFloat = 120.0
+        
+        let savedX = UserDefaults.standard.double(forKey: kPositionX)
+        let savedY = UserDefaults.standard.double(forKey: kPositionY)
+        
+        if savedX > 0 && savedY > 0 {
+            let finalX = min(CGFloat(savedX), screen.width - 70)
+            let finalY = min(CGFloat(savedY), screen.height - 50)
+            return CGPoint(x: max(0, finalX), y: max(0, finalY))
+        }
+        return CGPoint(x: defaultX, y: defaultY)
     }
 }

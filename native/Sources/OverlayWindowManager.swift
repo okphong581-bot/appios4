@@ -10,6 +10,7 @@ class OverlayWindowManager {
     static let shared = OverlayWindowManager()
     
     private var overlayWindow: HUDWindow?
+    private var sbsController: NSObject?
     
     private let kPositionX = "ha_overlay_position_x"
     private let kPositionY = "ha_overlay_position_y"
@@ -34,20 +35,37 @@ class OverlayWindowManager {
         let window = HUDWindow(frame: UIScreen.main.bounds)
         window.backgroundColor = .clear
         
-        // CHÚ Ý: KHÔNG gán windowScene cho overlayWindow để tránh bị ẩn khi app chính vào background.
-        // Quyền 'com.apple.springboard.accessibility-window-hosting' sẽ tự vẽ đè lên hệ thống ở background.
+        // CHÚ Ý: Cấp độ cửa sổ cao nhất
         window.windowLevel = UIWindow.Level(rawValue: 10_000_010)
         window.rootViewController = OverlayViewController()
         window.isUserInteractionEnabled = true
         window.isHidden = false
         
-        // Làm cửa sổ trở thành key window để nhận bàn phím/touch tốt hơn
+        // Làm cửa sổ trở thành key window
         window.makeKeyAndVisible()
         window.makeKey()
         
-        self.overlayWindow = window
+        // Đăng ký với SpringBoard để vẽ đè lên mọi ứng dụng và màn hình chính
+        let bundle = Bundle(path: "/System/Library/PrivateFrameworks/SpringBoardServices.framework")
+        bundle?.load()
         
-        print("[HUDManager] Đã hiển thị overlay trực tiếp từ App chính với Background Audio.")
+        if let sbsClass = NSClassFromString("SBSAccessibilityWindowHostingController") as? NSObject.Type {
+            let selector = NSSelectorFromString("registerWindowWithContextID:atLevel:")
+            typealias RegisterFunc = @convention(c) (AnyObject, Selector, UInt32, Double) -> Void
+            
+            let controller = sbsClass.init()
+            if let contextId = window.value(forKey: "_contextId") as? UInt32 {
+                let methodImp = controller.method(for: selector)
+                let registerFunc = unsafeBitCast(methodImp, to: RegisterFunc.self)
+                registerFunc(controller, selector, contextId, 10_000_010.0)
+                print("[HUDManager] Đã đăng ký với SBSAccessibilityWindowHostingController, ContextID: \(contextId)")
+            }
+            self.sbsController = controller
+        } else {
+            print("[HUDManager] Lỗi: Không thể tìm thấy SBSAccessibilityWindowHostingController")
+        }
+        
+        self.overlayWindow = window
         completion(true, nil)
     }
     
@@ -59,6 +77,7 @@ class OverlayWindowManager {
         
         window.isHidden = true
         self.overlayWindow = nil
+        self.sbsController = nil
         
         // Dừng phát âm thanh chạy ngầm
         BackgroundAudioPlayer.shared.stop()

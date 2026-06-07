@@ -13,10 +13,10 @@ class HUDAppDelegate: UIResponder, UIApplicationDelegate {
         let bundle = Bundle(path: "/System/Library/PrivateFrameworks/SpringBoardServices.framework")
         bundle?.load()
         
-        // Use a single full-screen window. Touches are handled by hitTest and ImGuiViewController.
+        // Use a single full-screen window. Touches are handled by hitTest and OverlayViewController.
         let espWin = HUDWindow(frame: UIScreen.main.bounds)
         self.espWindow = espWin
-        espWin.rootViewController = ImGuiViewController()
+        espWin.rootViewController = OverlayViewController()
         espWin.windowLevel = UIWindow.Level(rawValue: 10_000_010)
         espWin.backgroundColor = .clear
         espWin.isUserInteractionEnabled = true // Must be true to receive touches

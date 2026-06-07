@@ -2,23 +2,19 @@ import UIKit
 
 class HUDWindow: UIWindow {
     
-    // Override methods to identify as a secure system window
+    // Override các hàm private để iOS hiểu đây là cửa sổ hệ thống (không bị ẩn)
     @objc func _isSystemWindow() -> Bool { return true }
     @objc func _isWindowServerHostingManaged() -> Bool { return false }
     @objc func _isSecure() -> Bool { return true }
     @objc func _shouldCreateContextAsSecure() -> Bool { return true }
     
-    // Allow touch passthrough for empty spaces
+    // Cho phép click xuyên qua những khoảng trống (không có UI)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
-        
-        if let vc = self.rootViewController as? ImGuiViewController {
-            if vc.isPoint(insideMenu: point) {
-                return hitView
-            }
+        // Nếu hitView là chính window (tức là chạm vào chỗ trống), cho xuyên qua
+        if hitView == self {
+            return nil
         }
-        
-        // Return nil to ignore touch and let game receive it
-        return nil
+        return hitView
     }
 }

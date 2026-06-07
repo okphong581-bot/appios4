@@ -65,15 +65,27 @@ class DraggableView: UIView {
     }
 }
 
+class HackSwitch: UISwitch {
+    var hackTitle: String = ""
+}
+
+struct FakePlayer {
+    var name: String
+    var distance: String
+    var hp: CGFloat
+    var normCenter: CGPoint
+    var size: CGSize
+}
+
 class OverlayViewController: UIViewController, DraggableViewDelegate {
 
     private lazy var menuButton: DraggableView = {
         let v = DraggableView()
-        v.backgroundColor = UIColor(white: 0.1, alpha: 0.85)
+        v.backgroundColor = UIColor(red: 26/255, green: 23/255, blue: 48/255, alpha: 0.9)
         v.layer.cornerRadius = 25
         v.layer.borderWidth = 1.5
-        v.layer.borderColor = UIColor.systemBlue.cgColor
-        v.layer.shadowColor = UIColor.systemBlue.cgColor
+        v.layer.borderColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.8).cgColor
+        v.layer.shadowColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.8).cgColor
         v.layer.shadowOpacity = 0.8
         v.layer.shadowRadius = 8
         v.isUserInteractionEnabled = true
@@ -84,7 +96,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         let l = UILabel()
         l.text = "MENU ⚙️"
         l.textColor = .white
-        l.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        l.font = UIFont.systemFont(ofSize: 10, weight: .black)
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
@@ -94,12 +106,11 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     private lazy var espView: UIView = {
         let v = UIView(frame: UIScreen.main.bounds)
         v.backgroundColor = .clear
-        v.isHidden = true
         v.isUserInteractionEnabled = false
         return v
     }()
     
-    private var isEspVisible = false
+    private let espLayer = CAShapeLayer()
 
     private lazy var debugLabel: UILabel = {
         let l = UILabel(frame: CGRect(x: 10, y: 50, width: 300, height: 60))
@@ -107,11 +118,138 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         l.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         l.numberOfLines = 0
         l.font = UIFont.systemFont(ofSize: 12)
-        l.text = "Debug: UI Running..."
+        l.text = "HuyShare ESP: Ready"
         return l
     }()
     
-    // Khai báo public để HUDWindow có thể gọi cập nhật
+    // Mod Menu Panel
+    private lazy var menuPanel: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor(red: 15/255, green: 15/255, blue: 27/255, alpha: 0.95)
+        v.layer.cornerRadius = 16
+        v.layer.borderWidth = 1.5
+        v.layer.borderColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.9).cgColor
+        v.layer.shadowColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.6).cgColor
+        v.layer.shadowOpacity = 0.8
+        v.layer.shadowRadius = 12
+        v.layer.shadowOffset = .zero
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        return v
+    }()
+    
+    private lazy var titleBar: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor(red: 10/255, green: 10/255, blue: 18/255, alpha: 1.0)
+        v.layer.cornerRadius = 16
+        v.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+    
+    private lazy var titleLabel: UILabel = {
+        let l = UILabel()
+        l.text = "🔥 HUYSHARE MOD MENU V1.0 🔥"
+        l.textColor = UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0)
+        l.font = UIFont.systemFont(ofSize: 13, weight: .black)
+        l.textAlignment = .center
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    
+    private lazy var closeButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("✕", for: .normal)
+        b.setTitleColor(.white, for: .normal)
+        b.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.addTarget(self, action: #selector(closeMenu), for: .touchUpInside)
+        return b
+    }()
+    
+    private lazy var tabStackView: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .horizontal
+        sv.distribution = .fillEqually
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+    
+    private lazy var aimbotTabButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("AIMBOT", for: .normal)
+        b.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .bold)
+        b.tag = 0
+        b.addTarget(self, action: #selector(tabChanged(_:)), for: .touchUpInside)
+        return b
+    }()
+    
+    private lazy var visualTabButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("VISUAL (ESP)", for: .normal)
+        b.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .bold)
+        b.tag = 1
+        b.addTarget(self, action: #selector(tabChanged(_:)), for: .touchUpInside)
+        return b
+    }()
+    
+    private lazy var movementTabButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setTitle("MOVEMENT", for: .normal)
+        b.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .bold)
+        b.tag = 2
+        b.addTarget(self, action: #selector(tabChanged(_:)), for: .touchUpInside)
+        return b
+    }()
+    
+    private lazy var scrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+    
+    private lazy var contentStackView: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.spacing = 8
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+    
+    private lazy var footerLabel: UILabel = {
+        let l = UILabel()
+        l.text = "Trạng thái: Bypassed Anti-Cheat"
+        l.textColor = .green
+        l.font = UIFont.systemFont(ofSize: 9, weight: .semibold)
+        l.textAlignment = .center
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    
+    private var currentTab = 1 // Visual/ESP active by default
+    
+    private var hackStates: [String: Bool] = [
+        "Auto Headshot": false,
+        "Aim Lock": false,
+        "Draw FOV": false,
+        "ESP Box": false,
+        "ESP Line": false,
+        "ESP Skeleton": false,
+        "ESP Name": false,
+        "ESP Health": false,
+        "ESP Distance": false,
+        "Speed x10": false,
+        "Super Jump": false,
+        "Fly Hack": false,
+        "Teleport": false
+    ]
+    
+    private var fakePlayers: [FakePlayer] = [
+        FakePlayer(name: "🎯 HuyShare_VIP", distance: "12m", hp: 0.9, normCenter: CGPoint(x: 0.35, y: 0.4), size: CGSize(width: 50, height: 100)),
+        FakePlayer(name: "💀 Bot_99", distance: "45m", hp: 0.3, normCenter: CGPoint(x: 0.65, y: 0.45), size: CGSize(width: 35, height: 70)),
+        FakePlayer(name: "👑 ProPlayer", distance: "88m", hp: 1.0, normCenter: CGPoint(x: 0.5, y: 0.6), size: CGSize(width: 25, height: 50))
+    ]
+    
     func updateDebugText(_ text: String) {
         DispatchQueue.main.async {
             self.debugLabel.text = text
@@ -122,9 +260,9 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         super.viewDidLoad()
         view.backgroundColor = .clear
         
-        // Setup ESP View
+        // Setup ESP View & Layer
         view.addSubview(espView)
-        setupFakeESP()
+        espView.layer.addSublayer(espLayer)
         
         // Setup Menu Button
         menuButton.delegate = self
@@ -134,26 +272,28 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         // Setup Debug Label
         view.addSubview(debugLabel)
         
-        // Căn giữa text trong menu
+        // Setup Menu Panel
+        setupMenuPanel()
+        
+        // Align constraints for menu label
         NSLayoutConstraint.activate([
             menuLabel.centerXAnchor.constraint(equalTo: menuButton.centerXAnchor),
             menuLabel.centerYAnchor.constraint(equalTo: menuButton.centerYAnchor)
         ])
         
-        // Kích thước và vị trí ban đầu của menu
+        // Load position
         let initialPos = OverlayWindowManager.shared.loadPosition()
         menuButton.frame = CGRect(origin: initialPos, size: CGSize(width: 70, height: 50))
         
-        // Bắt đầu nhận diện hướng xoay màn hình (dự phòng)
+        // Rotation Notifications
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         NotificationCenter.default.addObserver(self, selector: #selector(handleRotation), name: UIDevice.orientationDidChangeNotification, object: nil)
         
-        // Đăng ký Darwin Notification cho SpringBoard Orientation (đáng tin cậy hơn cho daemon)
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, darwinNotificationCallback, "com.apple.springboard.rawOrientation" as CFString, nil, .deliverImmediately)
         
-        // Cập nhật hướng xoay ngay lần đầu
         handleRotation()
+        updateESPDrawing()
     }
     
     deinit {
@@ -162,81 +302,289 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, CFNotificationName("com.apple.springboard.rawOrientation" as CFString), nil)
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
     }
-
-    private func setupFakeESP() {
-        let screenBounds = UIScreen.main.bounds
+    
+    private func setupMenuPanel() {
+        view.addSubview(menuPanel)
+        menuPanel.addSubview(titleBar)
+        titleBar.addSubview(titleLabel)
+        titleBar.addSubview(closeButton)
+        menuPanel.addSubview(tabStackView)
+        tabStackView.addArrangedSubview(aimbotTabButton)
+        tabStackView.addArrangedSubview(visualTabButton)
+        tabStackView.addArrangedSubview(movementTabButton)
+        menuPanel.addSubview(scrollView)
+        scrollView.addSubview(contentStackView)
+        menuPanel.addSubview(footerLabel)
         
-        // 1. FOV Circle (Aimbot FOV)
-        let fovRadius: CGFloat = 80
-        let fovCircle = UIView(frame: CGRect(x: screenBounds.midX - fovRadius, y: screenBounds.midY - fovRadius, width: fovRadius * 2, height: fovRadius * 2))
-        fovCircle.layer.cornerRadius = fovRadius
-        fovCircle.layer.borderWidth = 1.5
-        fovCircle.layer.borderColor = UIColor.green.cgColor
-        fovCircle.backgroundColor = UIColor.green.withAlphaComponent(0.05)
-        fovCircle.autoresizingMask = [.flexibleTopMargin, .flexibleBottomMargin, .flexibleLeftMargin, .flexibleRightMargin]
-        espView.addSubview(fovCircle)
-        
-        // 2. Fake ESP Boxes
-        let box1 = createFakeESPBox(frame: CGRect(x: screenBounds.midX - 100, y: screenBounds.midY - 150, width: 40, height: 80), distance: "12m", health: 0.8)
-        let box2 = createFakeESPBox(frame: CGRect(x: screenBounds.midX + 80, y: screenBounds.midY - 50, width: 30, height: 60), distance: "45m", health: 0.3)
-        let box3 = createFakeESPBox(frame: CGRect(x: screenBounds.midX - 180, y: screenBounds.midY + 20, width: 25, height: 50), distance: "88m", health: 1.0)
-        
-        espView.addSubview(box1)
-        espView.addSubview(box2)
-        espView.addSubview(box3)
-        
-        // Animate fake ESP slightly
-        UIView.animate(withDuration: 2.0, delay: 0, options: [.repeat, .autoreverse, .allowUserInteraction], animations: {
-            box1.transform = CGAffineTransform(translationX: 15, y: -10)
-            box2.transform = CGAffineTransform(translationX: -20, y: 5)
-            box3.transform = CGAffineTransform(translationX: 10, y: 15)
-        }, completion: nil)
+        NSLayoutConstraint.activate([
+            // Center the menu panel
+            menuPanel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            menuPanel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            menuPanel.widthAnchor.constraint(equalToConstant: 320),
+            menuPanel.heightAnchor.constraint(equalToConstant: 350),
+            
+            // Title Bar
+            titleBar.topAnchor.constraint(equalTo: menuPanel.topAnchor),
+            titleBar.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor),
+            titleBar.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor),
+            titleBar.heightAnchor.constraint(equalToConstant: 44),
+            
+            titleLabel.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            
+            closeButton.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -12),
+            closeButton.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            
+            // Tab Stack View
+            tabStackView.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
+            tabStackView.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor),
+            tabStackView.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor),
+            tabStackView.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Scroll View
+            scrollView.topAnchor.constraint(equalTo: tabStackView.bottomAnchor, constant: 8),
+            scrollView.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor, constant: 12),
+            scrollView.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor, constant: -12),
+            scrollView.bottomAnchor.constraint(equalTo: footerLabel.topAnchor, constant: -8),
+            
+            // Content Stack View
+            contentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            
+            // Footer Label
+            footerLabel.bottomAnchor.constraint(equalTo: menuPanel.bottomAnchor, constant: -8),
+            footerLabel.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor),
+            footerLabel.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor),
+            footerLabel.heightAnchor.constraint(equalToConstant: 16)
+        ])
     }
     
-    private func createFakeESPBox(frame: CGRect, distance: String, health: CGFloat) -> UIView {
-        let container = UIView(frame: frame)
-        container.autoresizingMask = [.flexibleTopMargin, .flexibleBottomMargin, .flexibleLeftMargin, .flexibleRightMargin]
+    private func loadTabContent() {
+        contentStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
-        // Red Box
-        let box = UIView(frame: container.bounds)
-        box.layer.borderWidth = 1.5
-        box.layer.borderColor = UIColor.red.cgColor
-        box.backgroundColor = UIColor.red.withAlphaComponent(0.1)
-        container.addSubview(box)
+        let keys: [String]
+        switch currentTab {
+        case 0:
+            keys = ["Auto Headshot", "Aim Lock", "Draw FOV"]
+        case 1:
+            keys = ["ESP Box", "ESP Line", "ESP Skeleton", "ESP Name", "ESP Health", "ESP Distance"]
+        default:
+            keys = ["Speed x10", "Super Jump", "Fly Hack", "Teleport"]
+        }
         
-        // Health Bar
-        let hpBarBg = UIView(frame: CGRect(x: -6, y: 0, width: 3, height: frame.height))
-        hpBarBg.backgroundColor = .darkGray
-        container.addSubview(hpBarBg)
+        for key in keys {
+            let row = createSwitchRow(title: key)
+            contentStackView.addArrangedSubview(row)
+        }
         
-        let hpBar = UIView(frame: CGRect(x: -6, y: frame.height * (1.0 - health), width: 3, height: frame.height * health))
-        hpBar.backgroundColor = health > 0.5 ? .green : .red
-        container.addSubview(hpBar)
+        aimbotTabButton.setTitleColor(currentTab == 0 ? UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0) : .lightGray, for: .normal)
+        visualTabButton.setTitleColor(currentTab == 1 ? UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0) : .lightGray, for: .normal)
+        movementTabButton.setTitleColor(currentTab == 2 ? UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0) : .lightGray, for: .normal)
+    }
+    
+    private func createSwitchRow(title: String) -> UIView {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: 36).isActive = true
         
-        // Distance Text
-        let distLabel = UILabel(frame: CGRect(x: 0, y: -16, width: 50, height: 14))
-        distLabel.text = distance
-        distLabel.textColor = .yellow
-        distLabel.font = UIFont.systemFont(ofSize: 10, weight: .bold)
-        distLabel.layer.shadowColor = UIColor.black.cgColor
-        distLabel.layer.shadowOffset = CGSize(width: 1, height: 1)
-        distLabel.layer.shadowOpacity = 0.8
-        container.addSubview(distLabel)
+        let label = UILabel()
+        label.text = title
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(label)
         
-        return container
+        let sw = HackSwitch()
+        sw.hackTitle = title
+        sw.isOn = hackStates[title] ?? false
+        sw.onTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
+        sw.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        sw.translatesAutoresizingMaskIntoConstraints = false
+        sw.addTarget(self, action: #selector(switchToggled(_:)), for: .valueChanged)
+        row.addSubview(sw)
+        
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
+            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            
+            sw.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
+            sw.centerYAnchor.constraint(equalTo: row.centerYAnchor)
+        ])
+        
+        return row
+    }
+    
+    @objc private func switchToggled(_ sender: HackSwitch) {
+        hackStates[sender.hackTitle] = sender.isOn
+        updateESPDrawing()
+        updateDebugText("HuyShare: \(sender.hackTitle) -> \(sender.isOn ? "ON" : "OFF")")
+    }
+    
+    @objc private func tabChanged(_ sender: UIButton) {
+        currentTab = sender.tag
+        loadTabContent()
+    }
+    
+    @objc private func closeMenu() {
+        UIView.animate(withDuration: 0.2, animations: {
+            self.menuPanel.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            self.menuPanel.alpha = 0.0
+        }) { _ in
+            self.menuPanel.isHidden = true
+        }
+    }
+    
+    private func updateESPDrawing() {
+        espLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
+        espView.subviews.forEach { if $0 != debugLabel { $0.removeFromSuperview() } }
+        
+        let isAnyEspOn = hackStates["ESP Box"]! || hackStates["ESP Line"]! || hackStates["ESP Skeleton"]! || hackStates["ESP Name"]! || hackStates["ESP Health"]! || hackStates["ESP Distance"]!
+        espView.isHidden = !isAnyEspOn && !hackStates["Draw FOV"]!
+        
+        let screenBounds = UIScreen.main.bounds
+        
+        // 1. Draw FOV Circle
+        if hackStates["Draw FOV"] == true {
+            let fovRadius: CGFloat = 80
+            let path = UIBezierPath(arcCenter: CGPoint(x: screenBounds.midX, y: screenBounds.midY), radius: fovRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+            
+            let shape = CAShapeLayer()
+            shape.path = path.cgPath
+            shape.strokeColor = UIColor.green.cgColor
+            shape.fillColor = UIColor.green.withAlphaComponent(0.03).cgColor
+            shape.lineWidth = 1.0
+            espLayer.addSublayer(shape)
+        }
+        
+        // 2. Draw Fake Players
+        for player in fakePlayers {
+            let px = player.normCenter.x * screenBounds.width
+            let py = player.normCenter.y * screenBounds.height
+            let pw = player.size.width
+            let ph = player.size.height
+            
+            let rect = CGRect(x: px - pw/2, y: py - ph/2, width: pw, height: ph)
+            
+            // Box
+            if hackStates["ESP Box"] == true {
+                let path = UIBezierPath(rect: rect)
+                let shape = CAShapeLayer()
+                shape.path = path.cgPath
+                shape.strokeColor = UIColor.red.cgColor
+                shape.fillColor = UIColor.red.withAlphaComponent(0.08).cgColor
+                shape.lineWidth = 1.5
+                espLayer.addSublayer(shape)
+            }
+            
+            // Line
+            if hackStates["ESP Line"] == true {
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: screenBounds.midX, y: screenBounds.height))
+                path.addLine(to: CGPoint(x: px, y: rect.maxY))
+                
+                let shape = CAShapeLayer()
+                shape.path = path.cgPath
+                shape.strokeColor = UIColor.yellow.cgColor
+                shape.lineWidth = 1.0
+                espLayer.addSublayer(shape)
+            }
+            
+            // Skeleton
+            if hackStates["ESP Skeleton"] == true {
+                let path = UIBezierPath()
+                let headRadius = pw * 0.15
+                let headCenter = CGPoint(x: px, y: rect.minY + headRadius)
+                path.addArc(withCenter: headCenter, radius: headRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+                
+                let neck = CGPoint(x: px, y: rect.minY + headRadius * 2)
+                let pelvis = CGPoint(x: px, y: rect.minY + ph * 0.6)
+                path.move(to: neck)
+                path.addLine(to: pelvis)
+                
+                let leftShoulder = CGPoint(x: px - pw * 0.35, y: rect.minY + ph * 0.25)
+                let rightShoulder = CGPoint(x: px + pw * 0.35, y: rect.minY + ph * 0.25)
+                path.move(to: leftShoulder)
+                path.addLine(to: rightShoulder)
+                
+                let leftHand = CGPoint(x: px - pw * 0.45, y: rect.minY + ph * 0.45)
+                let rightHand = CGPoint(x: px + pw * 0.45, y: rect.minY + ph * 0.45)
+                path.move(to: leftShoulder)
+                path.addLine(to: leftHand)
+                path.move(to: rightShoulder)
+                path.addLine(to: rightHand)
+                
+                let leftFoot = CGPoint(x: px - pw * 0.3, y: rect.maxY)
+                let rightFoot = CGPoint(x: px + pw * 0.3, y: rect.maxY)
+                path.move(to: pelvis)
+                path.addLine(to: leftFoot)
+                path.move(to: pelvis)
+                path.addLine(to: rightFoot)
+                
+                let shape = CAShapeLayer()
+                shape.path = path.cgPath
+                shape.strokeColor = UIColor.green.cgColor
+                shape.fillColor = UIColor.clear.cgColor
+                shape.lineWidth = 1.2
+                espLayer.addSublayer(shape)
+            }
+            
+            // Name
+            if hackStates["ESP Name"] == true {
+                let nameLabel = UILabel()
+                nameLabel.text = player.name
+                nameLabel.textColor = .white
+                nameLabel.font = UIFont.systemFont(ofSize: 9, weight: .bold)
+                nameLabel.sizeToFit()
+                nameLabel.center = CGPoint(x: px, y: rect.minY - 22)
+                espView.addSubview(nameLabel)
+            }
+            
+            // Distance
+            if hackStates["ESP Distance"] == true {
+                let distLabel = UILabel()
+                distLabel.text = player.distance
+                distLabel.textColor = .yellow
+                distLabel.font = UIFont.systemFont(ofSize: 8, weight: .bold)
+                distLabel.sizeToFit()
+                distLabel.center = CGPoint(x: px, y: rect.minY - 10)
+                espView.addSubview(distLabel)
+            }
+            
+            // Health Bar
+            if hackStates["ESP Health"] == true {
+                let hpBarWidth: CGFloat = 3.0
+                let hpBarX = rect.minX - hpBarWidth - 3.0
+                
+                let hpBarBg = UIView(frame: CGRect(x: hpBarX, y: rect.minY, width: hpBarWidth, height: ph))
+                hpBarBg.backgroundColor = .darkGray
+                espView.addSubview(hpBarBg)
+                
+                let hpHeight = ph * player.hp
+                let hpBar = UIView(frame: CGRect(x: hpBarX, y: rect.maxY - hpHeight, width: hpBarWidth, height: hpHeight))
+                hpBar.backgroundColor = player.hp > 0.5 ? .green : .red
+                espView.addSubview(hpBar)
+            }
+        }
     }
 
     // MARK: - DraggableViewDelegate
     
     func didTap(view: DraggableView) {
-        isEspVisible.toggle()
-        UIView.transition(with: espView, duration: 0.3, options: .transitionCrossDissolve, animations: {
-            self.espView.isHidden = !self.isEspVisible
-        }, completion: nil)
-        
-        UIView.animate(withDuration: 0.3) {
-            self.menuButton.layer.borderColor = self.isEspVisible ? UIColor.green.cgColor : UIColor.systemBlue.cgColor
-            self.menuButton.layer.shadowColor = self.isEspVisible ? UIColor.green.cgColor : UIColor.systemBlue.cgColor
+        let isOpen = !menuPanel.isHidden
+        if isOpen {
+            closeMenu()
+        } else {
+            self.menuPanel.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            self.menuPanel.alpha = 0.0
+            self.menuPanel.isHidden = false
+            UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut, animations: {
+                self.menuPanel.transform = .identity
+                self.menuPanel.alpha = 1.0
+            }, completion: nil)
+            loadTabContent()
         }
     }
     
@@ -253,8 +601,6 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     }
     
     @objc func handleRotation() {
-        // UIDevice.current.orientation đôi khi bị lỗi trong daemon.
-        // Sử dụng private API của BackBoardServices để lấy góc quay thật của phần cứng.
         let rawOrientation = globalGetDeviceOrientation?() ?? 0
         let orientation = UIDeviceOrientation(rawValue: rawOrientation) ?? .unknown
         
@@ -277,28 +623,21 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         }
         
         UIView.animate(withDuration: 0.3) {
-            // Xoay toàn bộ view chính để ESP và Menu xoay theo
             self.view.transform = CGAffineTransform(rotationAngle: angle)
             
-            // Căn chỉnh lại menuButton để không văng ra ngoài sau khi xoay
             let s = UIScreen.main.bounds.size
             var c = self.menuButton.center
             c.x = max(self.menuButton.bounds.width / 2, min(c.x, s.width - self.menuButton.bounds.width / 2))
             c.y = max(self.menuButton.bounds.height / 2, min(c.y, s.height - self.menuButton.bounds.height / 2))
             self.menuButton.center = c
             
-            // Đặt lại frame của ESP view để cover toàn bộ màn hình
-            // Vì view bị xoay, hệ toạ độ nội bộ thay đổi, ta nên dùng frame = bounds của screen, nhưng hoán đổi width/height nếu landscape
             if isLandscape {
                 self.espView.frame = CGRect(x: 0, y: 0, width: s.height, height: s.width)
             } else {
                 self.espView.frame = CGRect(x: 0, y: 0, width: s.width, height: s.height)
             }
             
-            // Căn giữa lại FOV
-            if let fov = self.espView.subviews.first {
-                fov.center = CGPoint(x: self.espView.bounds.midX, y: self.espView.bounds.midY)
-            }
+            self.updateESPDrawing()
         }
     }
 }

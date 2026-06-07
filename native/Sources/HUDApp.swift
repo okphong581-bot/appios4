@@ -23,6 +23,10 @@ class HUDAppDelegate: UIResponder, UIApplicationDelegate {
         espWin.isHidden = false
         espWin.makeKeyAndVisible()
         
+        // Add to UIApplication's active window list indirectly
+        UIApplication.shared.windows.first?.makeKeyAndVisible()
+        espWin.makeKey()
+        
         // Register with SpringBoard
         if let sbsClass = NSClassFromString("SBSAccessibilityWindowHostingController") as? NSObject.Type {
             let selector = NSSelectorFromString("registerWindowWithContextID:atLevel:")

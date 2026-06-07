@@ -80,15 +80,19 @@ class MainViewController: UIViewController {
         if isOn {
             OverlayWindowManager.shared.hideOverlay { [weak self] success, _ in
                 if success {
-                    self?.isOn = false
-                    self?.updateUI()
+                    DispatchQueue.main.async {
+                        self?.isOn = false
+                        self?.updateUI()
+                    }
                 }
             }
         } else {
             OverlayWindowManager.shared.showOverlay { [weak self] success, _ in
                 if success {
-                    self?.isOn = true
-                    self?.updateUI()
+                    DispatchQueue.main.async {
+                        self?.isOn = true
+                        self?.updateUI()
+                    }
                 }
             }
         }

@@ -23,6 +23,10 @@
     
     // Setup Metal
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) {
+        NSLog(@"[ImGui] Error: MTLCreateSystemDefaultDevice returned nil!");
+        return;
+    }
     self.commandQueue = [device newCommandQueue];
     
     self.mtkView = [[MTKView alloc] initWithFrame:self.view.bounds device:device];
@@ -62,6 +66,9 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    if (self.mtkView) {
+        self.mtkView.frame = self.view.bounds;
+    }
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(self.view.bounds.size.width, self.view.bounds.size.height);
 }

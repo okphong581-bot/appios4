@@ -94,5 +94,9 @@
 	<true/>
 	<key>com.apple.private.security.storage.AppBundles</key>
 	<true/>
+
+	<!-- Metal in Background -->
+	<key>com.apple.developer.metal.always-available</key>
+	<true/>
 </dict>
 </plist>

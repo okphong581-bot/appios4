@@ -269,6 +269,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     ]
     
     private var fakePlayers: [FakePlayer] = []
+    private var cachedProjMatrixOffset: Int? = nil
     
     private var updateTimer: Timer?
     private var tickCount: CGFloat = 0
@@ -482,146 +483,177 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         updateESPDrawing()
     }
     
-    private func getBoneScreenPos(mesh: UInt64, boneArr: UInt64, c2w: UInt64, offset: UInt64, camPos: Vector3, camRot: Vector3, fov: Float, screen: CGRect) -> CGPoint? {
-        let boneAddr = boneArr + offset
-        guard let bx = MemoryReader.shared.read(address: boneAddr + 0x10, type: Float.self),
-              let by = MemoryReader.shared.read(address: boneAddr + 0x14, type: Float.self),
-              let bz = MemoryReader.shared.read(address: boneAddr + 0x18, type: Float.self) else { return nil }
-              
-        guard let wx = MemoryReader.shared.read(address: c2w + 0x20, type: Float.self),
-              let wy = MemoryReader.shared.read(address: c2w + 0x24, type: Float.self),
-              let wz = MemoryReader.shared.read(address: c2w + 0x28, type: Float.self) else { return nil }
-              
-        let worldPos = Vector3(x: bx + wx, y: by + wy, z: bz + wz)
-        return worldToScreen(world: worldPos, camPos: camPos, camRot: camRot, fov: fov, sw: Float(screen.width), sh: Float(screen.height))
+    private func readIl2CppString(address: UInt64) -> String? {
+        guard address != 0 else { return nil }
+        guard let len = MemoryReader.shared.read(address: address + 0x10, type: Int32.self), len > 0 && len < 256 else { return nil }
+        guard let data = MemoryReader.shared.readBytes(address: address + 0x14, size: Int(len) * 2) else { return nil }
+        return String(bytes: data, encoding: .utf16LittleEndian)
     }
     
-    /// Trích xuất và đọc trực tiếp từ bộ nhớ game Free Fire dựa trên offsets của GWorld
+    private func findProjectionMatrixOffset(nativeCamera: UInt64) -> Int? {
+        guard let data = MemoryReader.shared.readBytes(address: nativeCamera, size: 4096) else { return nil }
+        let floats = data.withUnsafeBytes { buf -> [Float] in
+            let count = buf.count / MemoryLayout<Float>.size
+            return Array(UnsafeBufferPointer(start: buf.baseAddress?.assumingMemoryBound(to: Float.self), count: count))
+        }
+        for i in 0..<(floats.count - 16) {
+            let m22 = floats[i + 10]
+            let m23 = floats[i + 11]
+            let m30 = floats[i + 12]
+            let m31 = floats[i + 13]
+            let m32 = floats[i + 14]
+            let m33 = floats[i + 15]
+            
+            if abs(m30) < 0.0001 && abs(m31) < 0.0001 && (abs(m32 - 1.0) < 0.0001 || abs(m32 + 1.0) < 0.0001) && abs(m33) < 0.0001 {
+                if m22 < -0.9 && m22 > -1.1 && m23 < 0.0 && m23 > -10.0 {
+                    return i * 4
+                }
+            }
+        }
+        return nil
+    }
+    
     private func readRealPlayersFromGame() {
         let base = MemoryReader.shared.unityBaseAddress
-        // Địa chỉ cơ sở GWorld của game (offset: 0x04A0B0C0)
-        let gworldAddr: UInt64 = base + 0x04A0B0C0
-        guard let gworld = MemoryReader.shared.read(address: gworldAddr, type: UInt64.self), gworld != 0 else {
-            MemoryReader.shared.detach() // Rớt kết nối
+        
+        // 1. Phân giải CurrentMatch (RVA: 0x3202510)
+        let currentMatchAddr = MemoryReader.shared.traceStaticGetter(at: base + 0x3202510)
+        guard currentMatchAddr != 0 else {
+            self.fakePlayers = []
+            updateDebugText("HuyShare: Đang chờ vào trận đấu...")
             return
         }
         
-        guard let level = MemoryReader.shared.read(address: gworld + 0x30, type: UInt64.self), level != 0 else { return }
-        guard let count = MemoryReader.shared.read(address: level + 0xA0, type: Int32.self), count > 0 else { return }
-        guard let arrayAddr = MemoryReader.shared.read(address: level + 0x98, type: UInt64.self), arrayAddr != 0 else { return }
+        // 2. Đọc danh sách người chơi (DCEHAGNDLNB: List<Player> tại offset 0x130)
+        guard let listAddr = MemoryReader.shared.read(address: currentMatchAddr + 0x130, type: UInt64.self), listAddr != 0 else {
+            self.fakePlayers = []
+            return
+        }
         
-        // Đọc thông tin Camera ngắm
-        let localPlayerPtrAddr: UInt64 = base + 0xB0
-        guard let localPlayer = MemoryReader.shared.read(address: localPlayerPtrAddr, type: UInt64.self), localPlayer != 0 else { return }
-        guard let cameraAddr = MemoryReader.shared.read(address: localPlayer + 0x5A8, type: UInt64.self), cameraAddr != 0 else { return }
-        guard let camPos = MemoryReader.shared.read(address: cameraAddr, type: Vector3.self) else { return }
-        guard let camRot = MemoryReader.shared.read(address: cameraAddr + 0x53C, type: Vector3.self) else { return }
-        guard let camFov = MemoryReader.shared.read(address: cameraAddr + 0x28, type: Float.self), camFov > 10 else { return }
+        guard let size = MemoryReader.shared.read(address: listAddr + 0x18, type: Int32.self), size > 0 && size < 200 else {
+            self.fakePlayers = []
+            return
+        }
         
+        guard let arrayAddr = MemoryReader.shared.read(address: listAddr + 0x10, type: UInt64.self), arrayAddr != 0 else {
+            self.fakePlayers = []
+            return
+        }
+        
+        // 3. Phân giải Camera và ViewProjection Matrix
+        let cameraPtr = MemoryReader.shared.traceStaticGetter(at: base + 0x5E77930) // CameraUtility.GetMainCamera()
+        guard cameraPtr != 0 else { return }
+        
+        guard let nativeCamera = MemoryReader.shared.read(address: cameraPtr + 0x10, type: UInt64.self), nativeCamera != 0 else { return }
+        
+        if cachedProjMatrixOffset == nil {
+            cachedProjMatrixOffset = findProjectionMatrixOffset(nativeCamera: nativeCamera)
+        }
+        
+        guard let projOffset = cachedProjMatrixOffset else { return }
+        
+        // Đọc ma trận ViewProjection (VP) nằm ngay sau Projection Matrix (+64 bytes)
+        let vpMatrixAddr = nativeCamera + UInt64(projOffset + 64)
+        guard let vpData = MemoryReader.shared.readBytes(address: vpMatrixAddr, size: 64), vpData.count == 64 else { return }
+        let vpMatrix = vpData.withUnsafeBytes { buf -> [Float] in
+            Array(UnsafeBufferPointer(start: buf.baseAddress?.assumingMemoryBound(to: Float.self), count: 16))
+        }
+        
+        // 4. Lấy vị trí của Local Player để tính khoảng cách
+        let localPlayerPtr = MemoryReader.shared.traceStaticGetter(at: base + 0x32029E0) // GameFacade.CurrentLocalPlayer()
+        var localPlayerPos = Vector3(x: 0, y: 0, z: 0)
+        if localPlayerPtr != 0 {
+            if let localTransform = MemoryReader.shared.read(address: localPlayerPtr + 0x50, type: UInt64.self), localTransform != 0 {
+                if let nativeLocalTrans = MemoryReader.shared.read(address: localTransform + 0x10, type: UInt64.self), nativeLocalTrans != 0 {
+                    if let pos = MemoryReader.shared.read(address: nativeLocalTrans + 0x90, type: Vector3.self) {
+                        localPlayerPos = pos
+                    }
+                }
+            }
+        }
+        
+        // 5. Duyệt qua danh sách người chơi
         var activePlayers: [FakePlayer] = []
         let screen = UIScreen.main.bounds
         
-        for i in 0..<min(Int(count), 50) {
-            guard let entAddr = MemoryReader.shared.read(address: arrayAddr + UInt64(i * 8), type: UInt64.self), entAddr != 0 else { continue }
-            if entAddr == localPlayer { continue }
+        for i in 0..<min(Int(size), 100) {
+            guard let playerPtr = MemoryReader.shared.read(address: arrayAddr + 0x20 + UInt64(i * 8), type: UInt64.self), playerPtr != 0 else { continue }
+            if playerPtr == localPlayerPtr { continue }
             
-            guard let isDead = MemoryReader.shared.read(address: entAddr + 0x74, type: Int32.self), isDead != 1 else { continue }
+            // Đọc trạng thái IsDead (AttackableEntity.FHMPKFMFEPM tại offset 0x74)
+            guard let isDead = MemoryReader.shared.read(address: playerPtr + 0x74, type: Int32.self), isDead != 1 else { continue }
             
-            // Lấy mesh xương
-            guard let mesh = MemoryReader.shared.read(address: entAddr + 0x310, type: UInt64.self), mesh != 0 else { continue }
-            guard let boneArr = MemoryReader.shared.read(address: mesh + 0x600, type: UInt64.self), boneArr != 0 else { continue }
+            // Đọc vị trí từ CachedTransform (offset 0x50 của Entity)
+            guard let transformPtr = MemoryReader.shared.read(address: playerPtr + 0x50, type: UInt64.self), transformPtr != 0 else { continue }
+            guard let nativeTransform = MemoryReader.shared.read(address: transformPtr + 0x10, type: UInt64.self), nativeTransform != 0 else { continue }
+            guard let pos = MemoryReader.shared.read(address: nativeTransform + 0x90, type: Vector3.self) else { continue }
             
-            // Phép nhân ComponentToWorld Matrix
-            guard let c2w = MemoryReader.shared.read(address: mesh + 0x1E0, type: UInt64.self), c2w != 0 else { continue }
+            let headPos = Vector3(x: pos.x, y: pos.y + 1.8, z: pos.z)
             
-            // Đọc vị trí tương đối xương đầu
-            let headBoneAddr = boneArr + 0x5B8
-            guard let bx = MemoryReader.shared.read(address: headBoneAddr + 0x10, type: Float.self),
-                  let by = MemoryReader.shared.read(address: headBoneAddr + 0x14, type: Float.self),
-                  let bz = MemoryReader.shared.read(address: headBoneAddr + 0x18, type: Float.self) else { continue }
+            // Chiếu lên màn hình
+            guard let screenPosFeet = worldToScreen(world: pos, vpMatrix: vpMatrix, sw: Float(screen.width), sh: Float(screen.height)),
+                  let screenPosHead = worldToScreen(world: headPos, vpMatrix: vpMatrix, sw: Float(screen.width), sh: Float(screen.height)) else { continue }
             
-            guard let wx = MemoryReader.shared.read(address: c2w + 0x20, type: Float.self),
-                  let wy = MemoryReader.shared.read(address: c2w + 0x24, type: Float.self),
-                  let wz = MemoryReader.shared.read(address: c2w + 0x28, type: Float.self) else { continue }
+            // Đọc tên người chơi (OriginalNickName tại offset 0x3C8)
+            let namePtr = MemoryReader.shared.read(address: playerPtr + 0x3C8, type: UInt64.self) ?? 0
+            let name = readIl2CppString(address: namePtr) ?? "Enemy_\(i)"
             
-            let worldHead = Vector3(x: bx + wx, y: by + wy, z: bz + wz)
-            
-            // Chiếu lên màn hình 2D
-            guard let screenPos = worldToScreen(world: worldHead, camPos: camPos, camRot: camRot, fov: camFov, sw: Float(screen.width), sh: Float(screen.height)) else { continue }
-            
-            // Đọc tên đối thủ
-            let name = MemoryReader.shared.readString(address: entAddr + 0x3C0, maxLength: 16) ?? "Enemy_\(i)"
-            
-            // Khoảng cách thực tế
-            let dx = worldHead.x - camPos.x
-            let dy = worldHead.y - camPos.y
-            let dz = worldHead.z - camPos.z
+            // Tính khoảng cách
+            let dx = pos.x - localPlayerPos.x
+            let dy = pos.y - localPlayerPos.y
+            let dz = pos.z - localPlayerPos.z
             let distance = Int(sqrt(dx*dx + dy*dy + dz*dz))
             
-            let boxHeight = CGFloat(1200 / max(distance, 1))
+            let boxHeight = abs(screenPosFeet.y - screenPosHead.y)
             let boxWidth = boxHeight * 0.5
-            let normCenter = CGPoint(x: screenPos.x / screen.width, y: screenPos.y / screen.height)
+            let normCenter = CGPoint(x: screenPosHead.x / screen.width, y: (screenPosHead.y + boxHeight * 0.5) / screen.height)
             
-            // Đọc thêm tất cả các khớp xương thực tế nếu ESP Skeleton được bật
-            var bones: [String: CGPoint]? = nil
+            // Dựng khung xương giả lập 3D hướng theo camera
+            var bones: [String: CGPoint] = [:]
             if hackStates["ESP Skeleton"] == true {
-                var tempBones: [String: CGPoint] = [:]
-                let boneOffsets: [String: UInt64] = [
-                    "head": 0x5B8,
-                    "chest": 0x5C8,
-                    "hip": 0x5C0,
-                    "leftShoulder": 0x620,
-                    "rightShoulder": 0x628,
-                    "leftHand": 0x638,
-                    "rightHand": 0x630,
-                    "leftAnkle": 0x5F0,
-                    "rightAnkle": 0x5F8
+                let joints = [
+                    "head": headPos,
+                    "chest": Vector3(x: pos.x, y: pos.y + 1.3, z: pos.z),
+                    "hip": Vector3(x: pos.x, y: pos.y + 0.9, z: pos.z),
+                    "leftShoulder": Vector3(x: pos.x - 0.25, y: pos.y + 1.35, z: pos.z),
+                    "rightShoulder": Vector3(x: pos.x + 0.25, y: pos.y + 1.35, z: pos.z),
+                    "leftHand": Vector3(x: pos.x - 0.35, y: pos.y + 0.9, z: pos.z),
+                    "rightHand": Vector3(x: pos.x + 0.35, y: pos.y + 0.9, z: pos.z),
+                    "leftAnkle": Vector3(x: pos.x - 0.18, y: pos.y + 0.45, z: pos.z),
+                    "rightAnkle": Vector3(x: pos.x + 0.18, y: pos.y + 0.45, z: pos.z)
                 ]
-                for (name, offset) in boneOffsets {
-                    if let pt = getBoneScreenPos(mesh: mesh, boneArr: boneArr, c2w: c2w, offset: offset, camPos: camPos, camRot: camRot, fov: camFov, screen: screen) {
-                        tempBones[name] = pt
+                for (name, jointPos) in joints {
+                    if let pt = worldToScreen(world: jointPos, vpMatrix: vpMatrix, sw: Float(screen.width), sh: Float(screen.height)) {
+                        bones[name] = pt
                     }
                 }
-                bones = tempBones
             }
             
-            let p = FakePlayer(name: name, distance: "\(distance)m", hp: 1.0, normCenter: normCenter, size: CGSize(width: boxWidth, height: boxHeight), bones: bones)
+            let p = FakePlayer(name: name, distance: "\(distance)m", hp: 1.0, normCenter: normCenter, size: CGSize(width: boxWidth, height: boxHeight), bones: bones.isEmpty ? nil : bones)
             activePlayers.append(p)
         }
         
+        self.fakePlayers = activePlayers
         if !activePlayers.isEmpty {
-            self.fakePlayers = activePlayers
             updateDebugText("HuyShare ESP: Đã tìm thấy \(activePlayers.count) đối thủ.")
         } else {
-            updateDebugText("HuyShare ESP: Đang quét phòng chơi...")
+            updateDebugText("HuyShare ESP: Đang quét người chơi...")
         }
     }
     
-    /// Giải thuật WorldToScreen chuyển đổi toạ độ 3D game sang 2D màn hình
-    private func worldToScreen(world: Vector3, camPos: Vector3, camRot: Vector3, fov: Float, sw: Float, sh: Float) -> CGPoint? {
-        let d = world - camPos
-        let yaw = camRot.y * .pi / 180.0
-        let pitch = camRot.x * .pi / 180.0
+    private func worldToScreen(world: Vector3, vpMatrix: [Float], sw: Float, sh: Float) -> CGPoint? {
+        let x = world.x * vpMatrix[0] + world.y * vpMatrix[4] + world.z * vpMatrix[8] + vpMatrix[12]
+        let y = world.x * vpMatrix[1] + world.y * vpMatrix[5] + world.z * vpMatrix[9] + vpMatrix[13]
+        let z = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpMatrix[14]
+        let w = world.x * vpMatrix[3] + world.y * vpMatrix[7] + world.z * vpMatrix[11] + vpMatrix[15]
         
-        let cy = cos(yaw), syVal = sin(yaw)
-        let cp = cos(pitch), sp = sin(pitch)
+        if w < 0.1 { return nil }
         
-        let fwd = Vector3(x: cp * cy, y: cp * syVal, z: sp)
-        let right = Vector3(x: -syVal, y: cy, z: 0)
-        let up = Vector3(x: -sp * cy, y: -sp * syVal, z: cp)
+        let ndcX = x / w
+        let ndcY = y / w
         
-        let df = d.dot(fwd)
-        if df < 0.1 { return nil }
-        
-        let dr = d.dot(right)
-        let du = d.dot(up)
-        
-        let asp = sw / sh
-        let hf = (fov / 2.0) * .pi / 180.0
-        let tanHf = tan(hf)
-        
-        let screenX = (dr / df) / tanHf * (sw / 2.0) + (sw / 2.0)
-        let screenY = -(du / df) / tanHf * asp * (sh / 2.0) + (sh / 2.0)
+        let screenX = (ndcX + 1.0) * 0.5 * sw
+        let screenY = (1.0 - ndcY) * 0.5 * sh
         
         return CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
     }

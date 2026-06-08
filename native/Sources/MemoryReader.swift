@@ -116,7 +116,6 @@ class MemoryReader {
     
     /// Lấy địa chỉ Base của game (Mach-O Header)
     private func getBaseAddress(pid: pid_t) -> UInt64 {
-        // Sử dụng cấu trúc task_dyld_info để lấy danh sách ảnh nạp của tiến trình game
         let TASK_DYLD_INFO_FLAVOR: task_flavor_t = 17
         struct MyTaskDyldInfo {
             var all_image_info_addr: mach_vm_address_t
@@ -133,22 +132,21 @@ class MemoryReader {
         }
         
         guard kr == KERN_SUCCESS else {
-            return 0x100000000 // Trả về địa chỉ tĩnh mặc định làm fallback
+            return 0x100000000
         }
         
         let allImageInfoAddr = dyldInfo.all_image_info_addr
         guard allImageInfoAddr != 0 else { return 0x100000000 }
         
-        // Đọc cấu trúc dyld_all_image_infos trong tiến trình đích
-        // dyld_all_image_infos: uint32_t version (offset 0), uint32_t infoArrayCount (offset 4), uintptr_t infoArray (offset 8)
         guard let infoCount = read(address: allImageInfoAddr + 4, type: UInt32.self),
               let infoArray = read(address: allImageInfoAddr + 8, type: UInt64.self) else {
             return 0x100000000
         }
         
-        // Duyệt qua danh sách để tìm module game chính
+        var exeLoadAddr: UInt64 = 0
+        
         for i in 0..<min(infoCount, 500) {
-            let infoAddr = infoArray + UInt64(i * 24) // sizeof(dyld_image_info) = 24 trên iOS 64-bit
+            let infoAddr = infoArray + UInt64(i * 24)
             guard let loadAddr = read(address: infoAddr, type: UInt64.self),
                   let filePathPtr = read(address: infoAddr + 8, type: UInt64.self) else {
                 continue
@@ -156,13 +154,16 @@ class MemoryReader {
             
             if let path = readString(address: filePathPtr, maxLength: 256) {
                 let lowerPath = path.lowercased()
-                if lowerPath.contains("freefire") {
+                if lowerPath.contains("unityframework") {
                     return loadAddr
+                }
+                if lowerPath.contains("freefire") && exeLoadAddr == 0 {
+                    exeLoadAddr = loadAddr
                 }
             }
         }
         
-        return 0x100000000
+        return exeLoadAddr != 0 ? exeLoadAddr : 0x100000000
     }
     
     /// Đọc con trỏ lồng nhau (Pointer Chain Offset)
@@ -178,4 +179,54 @@ class MemoryReader {
         }
         return addr
     }
+    
+    /// Trình mô phỏng / Phân tích lệnh ARM64 để tự động phân giải các hàm static getter (ADRP + ADD/LDR)
+    func traceStaticGetter(at address: UInt64) -> UInt64 {
+        guard isAttached, let data = readBytes(address: address, size: 48), data.count >= 48 else { return 0 }
+        
+        var registers = Array(repeating: UInt64(0), count: 32)
+        
+        for i in 0..<12 {
+            let ins = data.withUnsafeBytes { $0.load(fromByteOffset: i * 4, as: UInt32.self) }
+            let pc = address + UInt64(i * 4)
+            
+            // ADRP
+            if (ins & 0x9F000000) == 0x90000000 {
+                let rd = Int(ins & 0x1F)
+                let immlo = UInt64((ins >> 29) & 0x3)
+                let immhi = UInt64((ins >> 5) & 0x7FFFF)
+                var imm = (immhi << 2) | immlo
+                if (imm & 0x100000) != 0 {
+                    imm |= 0xFFFFFFFFFFE00000
+                }
+                registers[rd] = (pc & ~0xFFF) &+ (imm << 12)
+            }
+            // ADD (immediate)
+            else if (ins & 0xFFC00000) == 0x91000000 {
+                let rd = Int(ins & 0x1F)
+                let rn = Int((ins >> 5) & 0x1F)
+                let offset = UInt64((ins >> 10) & 0xFFF)
+                registers[rd] = registers[rn] &+ offset
+            }
+            // LDR (immediate, unsigned offset 64-bit)
+            else if (ins & 0xFFC00000) == 0xF9400000 {
+                let rt = Int(ins & 0x1F)
+                let rn = Int((ins >> 5) & 0x1F)
+                let offset = UInt64((ins >> 10) & 0xFFF) * 8
+                let addr = registers[rn] &+ offset
+                if let val = read(address: addr, type: UInt64.self) {
+                    registers[rt] = val
+                } else {
+                    registers[rt] = 0
+                }
+            }
+            // RET
+            else if ins == 0xD65F03C0 {
+                return registers[0]
+            }
+        }
+        
+        return registers[0]
+    }
 }
+

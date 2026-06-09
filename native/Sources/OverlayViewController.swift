@@ -644,7 +644,10 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     private func worldToScreen(world: Vector3, vpMatrix: [Float], sw: Float, sh: Float) -> CGPoint? {
         let x = world.x * vpMatrix[0] + world.y * vpMatrix[4] + world.z * vpMatrix[8] + vpMatrix[12]
         let y = world.x * vpMatrix[1] + world.y * vpMatrix[5] + world.z * vpMatrix[9] + vpMatrix[13]
-        let z = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpMatrix[14]
+        // Thay:
+let z = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpMatrix[14]
+// Thành:
+_ = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpMatrix[14]
         let w = world.x * vpMatrix[3] + world.y * vpMatrix[7] + world.z * vpMatrix[11] + vpMatrix[15]
         
         if w < 0.1 { return nil }

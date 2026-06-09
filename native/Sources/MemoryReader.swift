@@ -10,7 +10,6 @@ class MemoryReader {
     private(set) var unityBaseAddress: UInt64 = 0
     
     // ESP Data
-    private var entityList: [ESPEntity] = []
     private var cameraMatrix: [Float] = [Float](repeating: 0, count: 16)
     private var screenWidth: CGFloat = UIScreen.main.bounds.width
     private var screenHeight: CGFloat = UIScreen.main.bounds.height
@@ -51,7 +50,7 @@ class MemoryReader {
             self.taskPort = port
             self.gamePid = pid
             self.unityBaseAddress = getBaseAddress()
-            print("[MemoryReader] Attached to PID: \(pid), Base: 0x\(String(unityBaseAddress, radix: 16))")
+            Swift.print("[MemoryReader] Attached to PID: \(pid), Base: 0x\(String(unityBaseAddress, radix: 16))")
             applyBypasses()
             applyAimDragHex()
             startESP()
@@ -127,43 +126,7 @@ class MemoryReader {
         return addr
     }
     
-    // MARK: - Trace Static Getter
-    func traceStaticGetter(at address: UInt64) -> UInt64 {
-        guard isAttached, let data = readBytes(address: address, size: 48), data.count >= 48 else { return 0 }
-        var registers = Array(repeating: UInt64(0), count: 32)
-        for i in 0..<12 {
-            let ins = data.withUnsafeBytes { $0.load(fromByteOffset: i * 4, as: UInt32.self) }
-            let pc = address + UInt64(i * 4)
-            // ADRP
-            if (ins & 0x9F000000) == 0x90000000 {
-                let rd = Int(ins & 0x1F)
-                let immlo = UInt64((ins >> 29) & 0x3)
-                let immhi = UInt64((ins >> 5) & 0x7FFFF)
-                var imm = (immhi << 2) | immlo
-                if (imm & 0x100000) != 0 { imm |= 0xFFFFFFFFFFE00000 }
-                registers[rd] = (pc & ~0xFFF) &+ (imm << 12)
-            }
-            // ADD immediate
-            else if (ins & 0xFFC00000) == 0x91000000 {
-                let rd = Int(ins & 0x1F)
-                let rn = Int((ins >> 5) & 0x1F)
-                let offset = UInt64((ins >> 10) & 0xFFF)
-                registers[rd] = registers[rn] &+ offset
-            }
-            // LDR immediate 64-bit
-            else if (ins & 0xFFC00000) == 0xF9400000 {
-                let rt = Int(ins & 0x1F)
-                let rn = Int((ins >> 5) & 0x1F)
-                let offset = UInt64((ins >> 10) & 0xFFF) * 8
-                let addr = registers[rn] &+ offset
-                registers[rt] = read(address: addr, type: UInt64.self) ?? 0
-            }
-            else if ins == 0xD65F03C0 { return registers[0] }
-        }
-        return registers[0]
-    }
-    
-    // MARK: - Bypasses (UPDATED HEX FOR OB54)
+    // MARK: - Bypasses
     func applyBypasses() {
         guard isAttached else { return }
         let base = unityBaseAddress
@@ -177,44 +140,22 @@ class MemoryReader {
         _ = writeBytes(address: base + 0x7B8D040, data: truePatch)
         _ = writeBytes(address: base + 0x7BEB508, data: falsePatch)
         
-        print("[MemoryReader] Bypasses applied")
+        Swift.print("[MemoryReader] Bypasses applied")
     }
     
-    // MARK: - AIMDRAG HEX (Real offset for OB54)
+    // MARK: - AIMDRAG
     func applyAimDragHex() {
-        func applyAimDragHex() {
-    guard isAttached else { return }
-    let base = unityBaseAddress
-    
-    let uworldOffset: UInt64 = 0x11A222D0
-    
-    guard let uworld = read(address: base + uworldOffset, type: UInt64.self),
-          let gameInstance = read(address: uworld + 0x38, type: UInt64.self),
-          let localPlayers = read(address: gameInstance + 0x38, type: UInt64.self),
-          let localPlayer = read(address: localPlayers, type: UInt64.self),
-          let playerController = read(address: localPlayer + 0x30, type: UInt64.self) else {
-        print("[AIMDRAG] Failed to get PlayerController")
-        return
-    }
-    
-    let newSens: Float = 3.0
-    let newThres: Float = 5.0
-    let newMaxAccel: Float = 12.0
-    let newDamp: Float = 0.4
-    
-    _ = write(address: playerController + 0xA58, value: newSens)
-    _ = write(address: playerController + 0xA5C, value: newThres)
-    _ = write(address: playerController + 0xA60, value: newMaxAccel)
-    _ = write(address: playerController + 0xA64, value: newDamp)
-    
-    if let pawn = read(address: playerController + 0x4A8, type: UInt64.self),
-       let mesh = read(address: pawn + 0x320, type: UInt64.self) {
-        _ = write(address: mesh + 0x6D8, value: 67)
-    }
-    
-    print("[AIMDRAG] Applied: sens=3.0, thres=5.0, maxAccel=12.0, damp=0.4")
-}
-            print("[AIMDRAG] Failed to get PlayerController")
+        guard isAttached else { return }
+        let base = unityBaseAddress
+        
+        let uworldOffset: UInt64 = 0x11A222D0
+        
+        guard let uworld = read(address: base + uworldOffset, type: UInt64.self),
+              let gameInstance = read(address: uworld + 0x38, type: UInt64.self),
+              let localPlayers = read(address: gameInstance + 0x38, type: UInt64.self),
+              let localPlayer = read(address: localPlayers, type: UInt64.self),
+              let playerController = read(address: localPlayer + 0x30, type: UInt64.self) else {
+            Swift.print("[AIMDRAG] Failed to get PlayerController")
             return
         }
         
@@ -233,10 +174,10 @@ class MemoryReader {
             _ = write(address: mesh + 0x6D8, value: 67)
         }
         
-        print("[AIMDRAG] Applied: sens=3.0, thres=5.0, maxAccel=12.0, damp=0.4")
+        Swift.print("[AIMDRAG] Applied")
     }
     
-    // MARK: - ESP REAL
+    // MARK: - ESP
     struct ESPEntity {
         var address: UInt64
         var name: String
@@ -252,7 +193,6 @@ class MemoryReader {
     func startESP() {
         guard espView == nil else { return }
         DispatchQueue.main.async {
-            _ = UIApplication.shared.connectedScenes.first as? UIWindowScene
             self.espView = ESPOverlayView(frame: UIScreen.main.bounds)
             self.espView?.backgroundColor = .clear
             self.espView?.isUserInteractionEnabled = false
@@ -293,7 +233,7 @@ class MemoryReader {
         
         var newEntities: [ESPEntity] = []
         
-        for i in 0..<min(actorCount, 200) {
+        for i in 0..<min(Int(actorCount), 200) {
             guard let actor = read(address: actorArray + UInt64(i) * 8, type: UInt64.self), actor != 0 else { continue }
             
             guard let namePtr = read(address: actor + 0x68, type: UInt64.self),

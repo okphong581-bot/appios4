@@ -182,17 +182,38 @@ class MemoryReader {
     
     // MARK: - AIMDRAG HEX (Real offset for OB54)
     func applyAimDragHex() {
-        guard isAttached else { return }
-        let base = unityBaseAddress
-        
-        let uworldOffset: UInt64 = 0x11A222D0
-        _: UInt64 = 0x38
-        
-        guard let uworld = read(address: base + uworldOffset, type: UInt64.self),
-              let gameInstance = read(address: uworld + 0x38, type: UInt64.self),
-              let localPlayers = read(address: gameInstance + 0x38, type: UInt64.self),
-              let localPlayer = read(address: localPlayers, type: UInt64.self),
-              let playerController = read(address: localPlayer + 0x30, type: UInt64.self) else {
+        func applyAimDragHex() {
+    guard isAttached else { return }
+    let base = unityBaseAddress
+    
+    let uworldOffset: UInt64 = 0x11A222D0
+    
+    guard let uworld = read(address: base + uworldOffset, type: UInt64.self),
+          let gameInstance = read(address: uworld + 0x38, type: UInt64.self),
+          let localPlayers = read(address: gameInstance + 0x38, type: UInt64.self),
+          let localPlayer = read(address: localPlayers, type: UInt64.self),
+          let playerController = read(address: localPlayer + 0x30, type: UInt64.self) else {
+        print("[AIMDRAG] Failed to get PlayerController")
+        return
+    }
+    
+    let newSens: Float = 3.0
+    let newThres: Float = 5.0
+    let newMaxAccel: Float = 12.0
+    let newDamp: Float = 0.4
+    
+    _ = write(address: playerController + 0xA58, value: newSens)
+    _ = write(address: playerController + 0xA5C, value: newThres)
+    _ = write(address: playerController + 0xA60, value: newMaxAccel)
+    _ = write(address: playerController + 0xA64, value: newDamp)
+    
+    if let pawn = read(address: playerController + 0x4A8, type: UInt64.self),
+       let mesh = read(address: pawn + 0x320, type: UInt64.self) {
+        _ = write(address: mesh + 0x6D8, value: 67)
+    }
+    
+    print("[AIMDRAG] Applied: sens=3.0, thres=5.0, maxAccel=12.0, damp=0.4")
+}
             print("[AIMDRAG] Failed to get PlayerController")
             return
         }

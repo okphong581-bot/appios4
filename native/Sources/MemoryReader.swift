@@ -104,6 +104,7 @@ class MemoryReader {
         return data.withUnsafeBytes { $0.load(as: T.self) }
     }
     
+    @discardableResult
     func write<T>(address: UInt64, value: T) -> Bool {
         var val = value
         return withUnsafeBytes(of: &val) { writeBytes(address: address, data: Data($0)) }
@@ -126,25 +127,55 @@ class MemoryReader {
         return addr
     }
     
+    // MARK: - Trace Static Getter
+    func traceStaticGetter(at address: UInt64) -> UInt64 {
+        guard isAttached, let data = readBytes(address: address, size: 48), data.count >= 48 else { return 0 }
+        var registers = Array(repeating: UInt64(0), count: 32)
+        for i in 0..<12 {
+            let ins = data.withUnsafeBytes { $0.load(fromByteOffset: i * 4, as: UInt32.self) }
+            let pc = address + UInt64(i * 4)
+            // ADRP
+            if (ins & 0x9F000000) == 0x90000000 {
+                let rd = Int(ins & 0x1F)
+                let immlo = UInt64((ins >> 29) & 0x3)
+                let immhi = UInt64((ins >> 5) & 0x7FFFF)
+                var imm = (immhi << 2) | immlo
+                if (imm & 0x100000) != 0 { imm |= 0xFFFFFFFFFFE00000 }
+                registers[rd] = (pc & ~0xFFF) &+ (imm << 12)
+            }
+            // ADD immediate
+            else if (ins & 0xFFC00000) == 0x91000000 {
+                let rd = Int(ins & 0x1F)
+                let rn = Int((ins >> 5) & 0x1F)
+                let offset = UInt64((ins >> 10) & 0xFFF)
+                registers[rd] = registers[rn] &+ offset
+            }
+            // LDR immediate 64-bit
+            else if (ins & 0xFFC00000) == 0xF9400000 {
+                let rt = Int(ins & 0x1F)
+                let rn = Int((ins >> 5) & 0x1F)
+                let offset = UInt64((ins >> 10) & 0xFFF) * 8
+                let addr = registers[rn] &+ offset
+                registers[rt] = read(address: addr, type: UInt64.self) ?? 0
+            }
+            else if ins == 0xD65F03C0 { return registers[0] }
+        }
+        return registers[0]
+    }
+    
     // MARK: - Bypasses (UPDATED HEX FOR OB54)
     func applyBypasses() {
         guard isAttached else { return }
         let base = unityBaseAddress
         
-        // MOV W0, #0; RET (false/disable)
         let falsePatch = Data([0xE0, 0x00, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6])
-        // MOV W0, #1; RET (true/enable)
         let truePatch = Data([0x20, 0x00, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6])
         
-        writeBytes(address: base + 0x5C8E084, data: falsePatch)   // IsVPN
-        writeBytes(address: base + 0x5C8E104, data: falsePatch)   // IsVPN2
-        writeBytes(address: base + 0x7B8CC80, data: truePatch)    // CheckSignature -> true
-        writeBytes(address: base + 0x7B8D040, data: truePatch)    // VerifySignature -> true
-        writeBytes(address: base + 0x7BEB508, data: falsePatch)   // SecurityEnabled -> false
-        
-        // Anti-debug ptrace bypass
-        let retPatch = Data([0xC0, 0x03, 0x5F, 0xD6]) // RET
-        writeBytes(address: base + 0x123456, data: retPatch) // placeholder, actual ptrace offset varies
+        _ = writeBytes(address: base + 0x5C8E084, data: falsePatch)
+        _ = writeBytes(address: base + 0x5C8E104, data: falsePatch)
+        _ = writeBytes(address: base + 0x7B8CC80, data: truePatch)
+        _ = writeBytes(address: base + 0x7B8D040, data: truePatch)
+        _ = writeBytes(address: base + 0x7BEB508, data: falsePatch)
         
         print("[MemoryReader] Bypasses applied")
     }
@@ -154,44 +185,37 @@ class MemoryReader {
         guard isAttached else { return }
         let base = unityBaseAddress
         
-        // OB54 Offsets (update after each game version)
         let uworldOffset: UInt64 = 0x11A222D0
-        let localPlayerOffset: UInt64 = 0x38
-        let playerControllerOffset: UInt64 = 0x30
+        _: UInt64 = 0x38
         
-        // Read UWorld
         guard let uworld = read(address: base + uworldOffset, type: UInt64.self),
               let gameInstance = read(address: uworld + 0x38, type: UInt64.self),
               let localPlayers = read(address: gameInstance + 0x38, type: UInt64.self),
               let localPlayer = read(address: localPlayers, type: UInt64.self),
-              let playerController = read(address: localPlayer + playerControllerOffset, type: UInt64.self) else {
+              let playerController = read(address: localPlayer + 0x30, type: UInt64.self) else {
             print("[AIMDRAG] Failed to get PlayerController")
             return
         }
         
-        // AIMDRAG values (hex floats)
-        // Default: sens=0.5, thres=15.0, maxAccel=3.0, damp=0.95
-        // Modified: sens=3.0, thres=5.0, maxAccel=12.0, damp=0.4
-        let newSens: Float = 3.0      // hex: 00 00 40 40
-        let newThres: Float = 5.0     // hex: 00 00 A0 40
-        let newMaxAccel: Float = 12.0 // hex: 00 00 40 41
-        let newDamp: Float = 0.4      // hex: CD CC CC 3E
+        let newSens: Float = 3.0
+        let newThres: Float = 5.0
+        let newMaxAccel: Float = 12.0
+        let newDamp: Float = 0.4
         
-        write(address: playerController + 0xA58, value: newSens)   // AimDragSensitivity
-        write(address: playerController + 0xA5C, value: newThres)   // AimDragThreshold
-        write(address: playerController + 0xA60, value: newMaxAccel) // AimDragMaxAccel
-        write(address: playerController + 0xA64, value: newDamp)     // AimDragDamping
+        _ = write(address: playerController + 0xA58, value: newSens)
+        _ = write(address: playerController + 0xA5C, value: newThres)
+        _ = write(address: playerController + 0xA60, value: newMaxAccel)
+        _ = write(address: playerController + 0xA64, value: newDamp)
         
-        // Force head bone target (index 67)
         if let pawn = read(address: playerController + 0x4A8, type: UInt64.self),
            let mesh = read(address: pawn + 0x320, type: UInt64.self) {
-            write(address: mesh + 0x6D8, value: 67) // BoneTarget
+            _ = write(address: mesh + 0x6D8, value: 67)
         }
         
         print("[AIMDRAG] Applied: sens=3.0, thres=5.0, maxAccel=12.0, damp=0.4")
     }
     
-    // MARK: - ESP REAL (Entity + WorldToScreen + Overlay)
+    // MARK: - ESP REAL
     struct ESPEntity {
         var address: UInt64
         var name: String
@@ -207,7 +231,7 @@ class MemoryReader {
     func startESP() {
         guard espView == nil else { return }
         DispatchQueue.main.async {
-            let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            _ = UIApplication.shared.connectedScenes.first as? UIWindowScene
             self.espView = ESPOverlayView(frame: UIScreen.main.bounds)
             self.espView?.backgroundColor = .clear
             self.espView?.isUserInteractionEnabled = false
@@ -229,7 +253,6 @@ class MemoryReader {
     private func updateESP() {
         guard isAttached else { return }
         
-        // Get camera matrix
         guard let uworld = read(address: unityBaseAddress + 0x11A222D0, type: UInt64.self),
               let gameInstance = read(address: uworld + 0x38, type: UInt64.self),
               let localPlayers = read(address: gameInstance + 0x38, type: UInt64.self),
@@ -237,12 +260,10 @@ class MemoryReader {
               let playerController = read(address: localPlayer + 0x30, type: UInt64.self),
               let cameraManager = read(address: playerController + 0x458, type: UInt64.self) else { return }
         
-        // Read camera matrix (ViewProjectionMatrix)
         if let matrixData = readBytes(address: cameraManager + 0x3C0, size: 64) {
             cameraMatrix = matrixData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
         }
         
-        // Get entity list from ActorArray
         let actorArrayOffset: UInt64 = 0xA0
         let actorCountOffset: UInt64 = 0xA8
         
@@ -254,31 +275,24 @@ class MemoryReader {
         for i in 0..<min(actorCount, 200) {
             guard let actor = read(address: actorArray + UInt64(i) * 8, type: UInt64.self), actor != 0 else { continue }
             
-            // Check if is player (simplified: check name length or vtable)
             guard let namePtr = read(address: actor + 0x68, type: UInt64.self),
                   let name = readString(address: namePtr, maxLength: 32),
                   !name.isEmpty, name != "None" else { continue }
             
-            // Get position (root component)
             guard let rootComponent = read(address: actor + 0x1A0, type: UInt64.self),
                   let posX = read(address: rootComponent + 0x170, type: Float.self),
                   let posY = read(address: rootComponent + 0x174, type: Float.self),
                   let posZ = read(address: rootComponent + 0x178, type: Float.self) else { continue }
             
-            // Get health
             let health = read(address: actor + 0x10C8, type: Int32.self) ?? 0
-            
-            // Head position (approximate: foot + 1.7m)
             let headPos = (x: posX, y: posY, z: posZ + 1.7)
             
-            // World to screen
             let screenHead = worldToScreen(worldPos: (headPos.x, headPos.y, headPos.z))
             let screenFoot = worldToScreen(worldPos: (posX, posY, posZ))
             
-            // Check if on screen
             guard screenHead.x > 0 && screenHead.x < screenWidth && screenHead.y > 0 && screenHead.y < screenHeight else { continue }
             
-            let isEnemy = !name.lowercased().contains("player") // simplified
+            let isEnemy = !name.lowercased().contains("player")
             
             let entity = ESPEntity(
                 address: actor,
@@ -328,7 +342,7 @@ class MemoryReader {
         var dyldInfo = dyld_info(all_image_info_addr: 0, all_image_info_size: 0, all_image_info_format: 0)
         var count = mach_msg_type_number_t(MemoryLayout<dyld_info>.size / MemoryLayout<natural_t>.size)
         let kr = withUnsafeMutablePointer(to: &dyldInfo) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: count) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                 task_info(taskPort, 17, $0, &count)
             }
         }
@@ -366,18 +380,15 @@ class ESPOverlayView: UIWindow {
             let x = entity.screenHead.x - width / 2
             let y = entity.screenHead.y
             
-            // Box color based on enemy/team
             let color = entity.isEnemy ? UIColor.red : UIColor.green
             ctx.setStrokeColor(color.cgColor)
             ctx.setLineWidth(2)
             ctx.stroke(CGRect(x: x, y: y, width: width, height: height))
             
-            // Health bar
             let healthPercent = CGFloat(entity.health) / 100.0
             ctx.setFillColor(UIColor.green.cgColor)
             ctx.fill(CGRect(x: x, y: y - 8, width: width * healthPercent, height: 4))
             
-            // Name
             let nameText = entity.name as NSString
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: 11, weight: .bold),
@@ -387,7 +398,6 @@ class ESPOverlayView: UIWindow {
             ]
             nameText.draw(at: CGPoint(x: x, y: y - 20), withAttributes: attrs)
             
-            // Distance
             let distance = sqrt(entity.footPos.x * entity.footPos.x + entity.footPos.z * entity.footPos.z)
             let distText = String(format: "%.0fm", distance) as NSString
             distText.draw(at: CGPoint(x: x + width + 5, y: y + height/2), withAttributes: attrs)

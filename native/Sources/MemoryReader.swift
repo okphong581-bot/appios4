@@ -126,6 +126,42 @@ class MemoryReader {
         return addr
     }
     
+    // MARK: - Trace Static Getter
+    func traceStaticGetter(at address: UInt64) -> UInt64 {
+        guard isAttached, let data = readBytes(address: address, size: 48), data.count >= 48 else { return 0 }
+        var registers = Array(repeating: UInt64(0), count: 32)
+        for i in 0..<12 {
+            let ins = data.withUnsafeBytes { $0.load(fromByteOffset: i * 4, as: UInt32.self) }
+            let pc = address + UInt64(i * 4)
+            // ADRP
+            if (ins & 0x9F000000) == 0x90000000 {
+                let rd = Int(ins & 0x1F)
+                let immlo = UInt64((ins >> 29) & 0x3)
+                let immhi = UInt64((ins >> 5) & 0x7FFFF)
+                var imm = (immhi << 2) | immlo
+                if (imm & 0x100000) != 0 { imm |= 0xFFFFFFFFFFE00000 }
+                registers[rd] = (pc & ~0xFFF) &+ (imm << 12)
+            }
+            // ADD immediate
+            else if (ins & 0xFFC00000) == 0x91000000 {
+                let rd = Int(ins & 0x1F)
+                let rn = Int((ins >> 5) & 0x1F)
+                let offset = UInt64((ins >> 10) & 0xFFF)
+                registers[rd] = registers[rn] &+ offset
+            }
+            // LDR immediate 64-bit
+            else if (ins & 0xFFC00000) == 0xF9400000 {
+                let rt = Int(ins & 0x1F)
+                let rn = Int((ins >> 5) & 0x1F)
+                let offset = UInt64((ins >> 10) & 0xFFF) * 8
+                let addr = registers[rn] &+ offset
+                registers[rt] = read(address: addr, type: UInt64.self) ?? 0
+            }
+            else if ins == 0xD65F03C0 { return registers[0] }
+        }
+        return registers[0]
+    }
+    
     // MARK: - Bypasses
     func applyBypasses() {
         guard isAttached else { return }

@@ -568,7 +568,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             path.addLine(to: CGPoint(x: center.x + gap + size, y: center.y))
         }
         
-        if path.cgPath.numberOfPoints > 0 {
+        if !path.isEmpty {
             let shape = CAShapeLayer()
             shape.path = path.cgPath
             shape.strokeColor = color.cgColor

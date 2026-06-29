@@ -69,40 +69,18 @@ class HackSwitch: UISwitch {
     var hackTitle: String = ""
 }
 
-struct Vector3 {
-    var x: Float = 0
-    var y: Float = 0
-    var z: Float = 0
-    
-    static func -(left: Vector3, right: Vector3) -> Vector3 {
-        return Vector3(x: left.x - right.x, y: left.y - right.y, z: left.z - right.z)
-    }
-    
-    func dot(_ other: Vector3) -> Float {
-        return x * other.x + y * other.y + z * other.z
-    }
-}
-
-struct FakePlayer {
-    var name: String
-    var distance: String
-    var hp: CGFloat
-    var normCenter: CGPoint
-    var size: CGSize
-    var bones: [String: CGPoint]? = nil
-    
-    init(name: String, distance: String, hp: CGFloat, normCenter: CGPoint, size: CGSize, bones: [String: CGPoint]? = nil) {
-        self.name = name
-        self.distance = distance
-        self.hp = hp
-        self.normCenter = normCenter
-        self.size = size
-        self.bones = bones
-    }
-}
-
 class OverlayViewController: UIViewController, DraggableViewDelegate {
 
+    // MARK: - State Variables
+    private var crosshairEnabled: Bool = true
+    private var crosshairStyle: Int = 1 // 0: Dot, 1: Cross, 2: Circle, 3: T-Shape, 4: Combine
+    private var crosshairColorIndex: Int = 0 // 0: Green, 1: Red, 2: Cyan, 3: Yellow, 4: White
+    private var crosshairSize: CGFloat = 12
+    private var crosshairGap: CGFloat = 5
+    private var crosshairThickness: CGFloat = 1.5
+    private var crosshairDotSize: CGFloat = 2.0
+
+    // MARK: - UI Views
     private lazy var menuButton: DraggableView = {
         let v = DraggableView()
         v.backgroundColor = UIColor(red: 26/255, green: 23/255, blue: 48/255, alpha: 0.9)
@@ -126,7 +104,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         return l
     }()
     
-    // ESP Container
+    // Crosshair Container
     private lazy var espView: UIView = {
         let v = UIView(frame: UIScreen.main.bounds)
         v.backgroundColor = .clear
@@ -142,7 +120,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         l.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         l.numberOfLines = 0
         l.font = UIFont.systemFont(ofSize: 12)
-        l.text = "HuyShare ESP: Ready"
+        l.text = "HoangHa Crosshair: Sẵn sàng"
+        l.isHidden = true
         return l
     }()
     
@@ -173,7 +152,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     
     private lazy var titleLabel: UILabel = {
         let l = UILabel()
-        l.text = "🔥 HUYSHARE MOD MENU V1.0 🔥"
+        l.text = "🔥 HOANGHA CROSSHAIR 🔥"
         l.textColor = UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0)
         l.font = UIFont.systemFont(ofSize: 13, weight: .black)
         l.textAlignment = .center
@@ -191,41 +170,6 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         return b
     }()
     
-    private lazy var tabStackView: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.distribution = .fillEqually
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
-    
-    private lazy var aimbotTabButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("AIMBOT", for: .normal)
-        b.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .bold)
-        b.tag = 0
-        b.addTarget(self, action: #selector(tabChanged(_:)), for: .touchUpInside)
-        return b
-    }()
-    
-    private lazy var visualTabButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("VISUAL (ESP)", for: .normal)
-        b.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .bold)
-        b.tag = 1
-        b.addTarget(self, action: #selector(tabChanged(_:)), for: .touchUpInside)
-        return b
-    }()
-    
-    private lazy var movementTabButton: UIButton = {
-        let b = UIButton(type: .system)
-        b.setTitle("MOVEMENT", for: .normal)
-        b.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .bold)
-        b.tag = 2
-        b.addTarget(self, action: #selector(tabChanged(_:)), for: .touchUpInside)
-        return b
-    }()
-    
     private lazy var scrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.translatesAutoresizingMaskIntoConstraints = false
@@ -235,14 +179,14 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     private lazy var contentStackView: UIStackView = {
         let sv = UIStackView()
         sv.axis = .vertical
-        sv.spacing = 8
+        sv.spacing = 10
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
     
     private lazy var footerLabel: UILabel = {
         let l = UILabel()
-        l.text = "🛡️ Bypass Anti-Cheat | Anti-Ban 100% | Secure Window"
+        l.text = "🎯 Virtual Crosshair | Pure Overlay | Secure Window"
         l.textColor = .green
         l.font = UIFont.systemFont(ofSize: 9, weight: .semibold)
         l.textAlignment = .center
@@ -250,41 +194,20 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         return l
     }()
     
-    private var currentTab = 1 // Visual/ESP active by default
-    
-    private var hackStates: [String: Bool] = [
-        "Auto Headshot": false,
-        "Aim Lock": false,
-        "Draw FOV": false,
-        "ESP Box": false,
-        "ESP Line": false,
-        "ESP Skeleton": false,
-        "ESP Name": false,
-        "ESP Health": false,
-        "ESP Distance": false,
-        "Speed x10": false,
-        "Super Jump": false,
-        "Fly Hack": false,
-        "Teleport": false
-    ]
-    
-    private var fakePlayers: [FakePlayer] = []
-    private var cachedProjMatrixOffset: Int? = nil
-    
-    private var updateTimer: Timer?
-    private var tickCount: CGFloat = 0
-    
     func updateDebugText(_ text: String) {
         DispatchQueue.main.async {
             self.debugLabel.text = text
         }
     }
 
+    // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
         
-        // Setup ESP View & Layer
+        loadSettings()
+        
+        // Setup Crosshair View & Layer
         view.addSubview(espView)
         espView.layer.addSublayer(espLayer)
         
@@ -305,7 +228,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             menuLabel.centerYAnchor.constraint(equalTo: menuButton.centerYAnchor)
         ])
         
-        // Load position
+        // Load button position
         let initialPos = OverlayWindowManager.shared.loadPosition()
         menuButton.frame = CGRect(origin: initialPos, size: CGSize(width: 70, height: 50))
         
@@ -316,21 +239,20 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, darwinNotificationCallback, "com.apple.springboard.rawOrientation" as CFString, nil, .deliverImmediately)
         
-        // Bắt đầu vòng lặp quét bộ nhớ Game / Giả lập ESP ở 60 FPS (16ms)
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
-            self?.tickMemoryScan()
-        }
-        
         handleRotation()
-        updateESPDrawing()
+        updateCrosshairDrawing()
     }
     
     deinit {
-        updateTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, CFNotificationName("com.apple.springboard.rawOrientation" as CFString), nil)
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
+    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateCrosshairDrawing()
     }
     
     private func setupMenuPanel() {
@@ -338,10 +260,6 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         menuPanel.addSubview(titleBar)
         titleBar.addSubview(titleLabel)
         titleBar.addSubview(closeButton)
-        menuPanel.addSubview(tabStackView)
-        tabStackView.addArrangedSubview(aimbotTabButton)
-        tabStackView.addArrangedSubview(visualTabButton)
-        tabStackView.addArrangedSubview(movementTabButton)
         menuPanel.addSubview(scrollView)
         scrollView.addSubview(contentStackView)
         menuPanel.addSubview(footerLabel)
@@ -350,8 +268,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             // Center the menu panel
             menuPanel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             menuPanel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            menuPanel.widthAnchor.constraint(equalToConstant: 320),
-            menuPanel.heightAnchor.constraint(equalToConstant: 350),
+            menuPanel.widthAnchor.constraint(equalToConstant: 300),
+            menuPanel.heightAnchor.constraint(equalToConstant: 330),
             
             // Title Bar
             titleBar.topAnchor.constraint(equalTo: menuPanel.topAnchor),
@@ -365,14 +283,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             closeButton.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -12),
             closeButton.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
             
-            // Tab Stack View
-            tabStackView.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
-            tabStackView.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor),
-            tabStackView.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor),
-            tabStackView.heightAnchor.constraint(equalToConstant: 40),
-            
             // Scroll View
-            scrollView.topAnchor.constraint(equalTo: tabStackView.bottomAnchor, constant: 8),
+            scrollView.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor, constant: 12),
             scrollView.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor, constant: -12),
             scrollView.bottomAnchor.constraint(equalTo: footerLabel.topAnchor, constant: -8),
@@ -395,30 +307,71 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     private func loadTabContent() {
         contentStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
-        let keys: [String]
-        switch currentTab {
-        case 0:
-            keys = ["Auto Headshot", "Aim Lock", "Draw FOV"]
-        case 1:
-            keys = ["ESP Box", "ESP Line", "ESP Skeleton", "ESP Name", "ESP Health", "ESP Distance"]
-        default:
-            keys = ["Speed x10", "Super Jump", "Fly Hack", "Teleport"]
-        }
+        // 1. Switch Row (Enable/Disable)
+        let enableRow = createSwitchRow(title: "Bật tâm ảo")
+        contentStackView.addArrangedSubview(enableRow)
         
-        for key in keys {
-            let row = createSwitchRow(title: key)
-            contentStackView.addArrangedSubview(row)
-        }
+        // 2. Segmented Row for Style (Dot, Cross, Circle, T-Shape, All)
+        let styleRow = createSegmentedRow(title: "Kiểu dáng", items: ["Dot", "Cross", "Circle", "T-Shape", "All"], selectedIndex: crosshairStyle, tag: 10)
+        contentStackView.addArrangedSubview(styleRow)
         
-        aimbotTabButton.setTitleColor(currentTab == 0 ? UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0) : .lightGray, for: .normal)
-        visualTabButton.setTitleColor(currentTab == 1 ? UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0) : .lightGray, for: .normal)
-        movementTabButton.setTitleColor(currentTab == 2 ? UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0) : .lightGray, for: .normal)
+        // 3. Segmented Row for Color (Green, Red, Cyan, Yellow, White)
+        let colorRow = createSegmentedRow(title: "Màu sắc", items: ["Xanh", "Đỏ", "Lam", "Vàng", "Trắng"], selectedIndex: crosshairColorIndex, tag: 11)
+        contentStackView.addArrangedSubview(colorRow)
+        
+        // 4. Slider Row for Size
+        let sizeRow = createSliderRow(title: "Kích thước (Size)", minVal: 5, maxVal: 30, currentVal: Float(crosshairSize), tag: 1)
+        contentStackView.addArrangedSubview(sizeRow)
+        
+        // 5. Slider Row for Gap
+        let gapRow = createSliderRow(title: "Khoảng mở (Gap)", minVal: 0, maxVal: 25, currentVal: Float(crosshairGap), tag: 2)
+        contentStackView.addArrangedSubview(gapRow)
+        
+        // 6. Slider Row for Thickness
+        let thicknessRow = createSliderRow(title: "Độ dày (Thickness)", minVal: 1, maxVal: 6, currentVal: Float(crosshairThickness), tag: 3)
+        contentStackView.addArrangedSubview(thicknessRow)
+        
+        // 7. Slider Row for Dot Size
+        let dotSizeRow = createSliderRow(title: "Cỡ chấm (Dot Size)", minVal: 1, maxVal: 10, currentVal: Float(crosshairDotSize), tag: 4)
+        contentStackView.addArrangedSubview(dotSizeRow)
     }
     
     private func createSwitchRow(title: String) -> UIView {
         let row = UIView()
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        row.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        
+        let label = UILabel()
+        label.text = title
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 13, weight: .bold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(label)
+        
+        let sw = HackSwitch()
+        sw.hackTitle = title
+        sw.isOn = crosshairEnabled
+        sw.onTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
+        sw.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
+        sw.translatesAutoresizingMaskIntoConstraints = false
+        sw.addTarget(self, action: #selector(switchToggled(_:)), for: .valueChanged)
+        row.addSubview(sw)
+        
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
+            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            
+            sw.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
+            sw.centerYAnchor.constraint(equalTo: row.centerYAnchor)
+        ])
+        
+        return row
+    }
+    
+    private func createSegmentedRow(title: String, items: [String], selectedIndex: Int, tag: Int) -> UIView {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: 55).isActive = true
         
         let label = UILabel()
         label.text = title
@@ -427,35 +380,114 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         label.translatesAutoresizingMaskIntoConstraints = false
         row.addSubview(label)
         
-        let sw = HackSwitch()
-        sw.hackTitle = title
-        sw.isOn = hackStates[title] ?? false
-        sw.onTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
-        sw.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
-        sw.translatesAutoresizingMaskIntoConstraints = false
-        sw.addTarget(self, action: #selector(switchToggled(_:)), for: .valueChanged)
-        row.addSubview(sw)
+        let seg = UISegmentedControl(items: items)
+        seg.selectedSegmentIndex = selectedIndex
+        seg.tag = tag
+        seg.selectedSegmentTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
+        
+        let normalTitleAttributes = [NSAttributedString.Key.foregroundColor: UIColor.white.withAlphaComponent(0.6)]
+        let selectedTitleAttributes = [NSAttributedString.Key.foregroundColor: UIColor.white]
+        seg.setTitleTextAttributes(normalTitleAttributes, for: .normal)
+        seg.setTitleTextAttributes(selectedTitleAttributes, for: .selected)
+        seg.backgroundColor = UIColor(white: 0.15, alpha: 1.0)
+        seg.translatesAutoresizingMaskIntoConstraints = false
+        seg.addTarget(self, action: #selector(segmentChanged(_:)), for: .valueChanged)
+        row.addSubview(seg)
         
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
-            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
+            label.topAnchor.constraint(equalTo: row.topAnchor, constant: 4),
             
-            sw.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
-            sw.centerYAnchor.constraint(equalTo: row.centerYAnchor)
+            seg.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
+            seg.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
+            seg.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -4)
         ])
         
         return row
     }
     
+    private func createSliderRow(title: String, minVal: Float, maxVal: Float, currentVal: Float, tag: Int) -> UIView {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: 50).isActive = true
+        
+        let label = UILabel()
+        label.text = title
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(label)
+        
+        let slider = UISlider()
+        slider.minimumValue = minVal
+        slider.maximumValue = maxVal
+        slider.value = currentVal
+        slider.tag = tag
+        slider.minimumTrackTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
+        slider.translatesAutoresizingMaskIntoConstraints = false
+        slider.addTarget(self, action: #selector(sliderChanged(_:)), for: .valueChanged)
+        row.addSubview(slider)
+        
+        let valLabel = UILabel()
+        valLabel.text = String(format: "%.1f", currentVal)
+        valLabel.textColor = .lightGray
+        valLabel.font = UIFont.systemFont(ofSize: 11)
+        valLabel.textAlignment = .right
+        valLabel.translatesAutoresizingMaskIntoConstraints = false
+        valLabel.tag = tag + 100
+        row.addSubview(valLabel)
+        
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
+            label.topAnchor.constraint(equalTo: row.topAnchor, constant: 4),
+            
+            valLabel.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
+            valLabel.centerYAnchor.constraint(equalTo: label.centerYAnchor),
+            valLabel.widthAnchor.constraint(equalToConstant: 40),
+            
+            slider.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
+            slider.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
+            slider.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -4)
+        ])
+        
+        return row
+    }
+
+    // MARK: - Actions
     @objc private func switchToggled(_ sender: HackSwitch) {
-        hackStates[sender.hackTitle] = sender.isOn
-        updateESPDrawing()
-        updateDebugText("HuyShare: \(sender.hackTitle) -> \(sender.isOn ? "ON" : "OFF")")
+        crosshairEnabled = sender.isOn
+        saveSettings()
+        updateCrosshairDrawing()
     }
     
-    @objc private func tabChanged(_ sender: UIButton) {
-        currentTab = sender.tag
-        loadTabContent()
+    @objc private func segmentChanged(_ sender: UISegmentedControl) {
+        if sender.tag == 10 {
+            crosshairStyle = sender.selectedSegmentIndex
+        } else if sender.tag == 11 {
+            crosshairColorIndex = sender.selectedSegmentIndex
+        }
+        saveSettings()
+        updateCrosshairDrawing()
+    }
+    
+    @objc private func sliderChanged(_ sender: UISlider) {
+        let val = CGFloat(sender.value)
+        if sender.tag == 1 {
+            crosshairSize = val
+        } else if sender.tag == 2 {
+            crosshairGap = val
+        } else if sender.tag == 3 {
+            crosshairThickness = val
+        } else if sender.tag == 4 {
+            crosshairDotSize = val
+        }
+        
+        if let valLabel = contentStackView.viewWithTag(sender.tag + 100) as? UILabel {
+            valLabel.text = String(format: "%.1f", val)
+        }
+        
+        saveSettings()
+        updateCrosshairDrawing()
     }
     
     @objc private func closeMenu() {
@@ -466,374 +498,141 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             self.menuPanel.isHidden = true
         }
     }
-    
-    /// Vòng lặp chính quét bộ nhớ RAM thật / Hoạt cảnh giả lập
-    private func tickMemoryScan() {
-        // Cố gắng kết nối vào tiến trình game Free Fire
-        if !MemoryReader.shared.isAttached {
-            _ = MemoryReader.shared.attach()
-        }
-        
-        if MemoryReader.shared.isAttached {
-            readRealPlayersFromGame()
-        } else {
-            self.fakePlayers = []
-        }
-        
-        updateESPDrawing()
-    }
-    
-    private func readIl2CppString(address: UInt64) -> String? {
-        guard address != 0 else { return nil }
-        guard let len = MemoryReader.shared.read(address: address + 0x10, type: Int32.self), len > 0 && len < 256 else { return nil }
-        guard let data = MemoryReader.shared.readBytes(address: address + 0x14, size: Int(len) * 2) else { return nil }
-        return String(bytes: data, encoding: .utf16LittleEndian)
-    }
-    
-    private func findProjectionMatrixOffset(nativeCamera: UInt64) -> Int? {
-        guard let data = MemoryReader.shared.readBytes(address: nativeCamera, size: 4096) else { return nil }
-        let floats = data.withUnsafeBytes { buf -> [Float] in
-            let count = buf.count / MemoryLayout<Float>.size
-            return Array(UnsafeBufferPointer(start: buf.baseAddress?.assumingMemoryBound(to: Float.self), count: count))
-        }
-        for i in 0..<(floats.count - 16) {
-            let m22 = floats[i + 10]
-            let m23 = floats[i + 11]
-            let m30 = floats[i + 12]
-            let m31 = floats[i + 13]
-            let m32 = floats[i + 14]
-            let m33 = floats[i + 15]
-            
-            if abs(m30) < 0.0001 && abs(m31) < 0.0001 && (abs(m32 - 1.0) < 0.0001 || abs(m32 + 1.0) < 0.0001) && abs(m33) < 0.0001 {
-                if m22 < -0.9 && m22 > -1.1 && m23 < 0.0 && m23 > -10.0 {
-                    return i * 4
-                }
-            }
-        }
-        return nil
-    }
-    
-    private func readRealPlayersFromGame() {
-        let base = MemoryReader.shared.unityBaseAddress
-        
-        // 1. Phân giải CurrentMatch (RVA: 0x3202510)
-        let currentMatchAddr = MemoryReader.shared.traceStaticGetter(at: base + 0x3202510)
-        guard currentMatchAddr != 0 else {
-            self.fakePlayers = []
-            updateDebugText("HuyShare: Đang chờ vào trận đấu...")
-            return
-        }
-        
-        // 2. Đọc danh sách người chơi (DCEHAGNDLNB: List<Player> tại offset 0x130)
-        guard let listAddr = MemoryReader.shared.read(address: currentMatchAddr + 0x130, type: UInt64.self), listAddr != 0 else {
-            self.fakePlayers = []
-            return
-        }
-        
-        guard let size = MemoryReader.shared.read(address: listAddr + 0x18, type: Int32.self), size > 0 && size < 200 else {
-            self.fakePlayers = []
-            return
-        }
-        
-        guard let arrayAddr = MemoryReader.shared.read(address: listAddr + 0x10, type: UInt64.self), arrayAddr != 0 else {
-            self.fakePlayers = []
-            return
-        }
-        
-        // 3. Phân giải Camera và ViewProjection Matrix
-        let cameraPtr = MemoryReader.shared.traceStaticGetter(at: base + 0x5E77930) // CameraUtility.GetMainCamera()
-        guard cameraPtr != 0 else { return }
-        
-        guard let nativeCamera = MemoryReader.shared.read(address: cameraPtr + 0x10, type: UInt64.self), nativeCamera != 0 else { return }
-        
-        if cachedProjMatrixOffset == nil {
-            cachedProjMatrixOffset = findProjectionMatrixOffset(nativeCamera: nativeCamera)
-        }
-        
-        guard let projOffset = cachedProjMatrixOffset else { return }
-        
-        // Đọc ma trận ViewProjection (VP) nằm ngay sau Projection Matrix (+64 bytes)
-        let vpMatrixAddr = nativeCamera + UInt64(projOffset + 64)
-        guard let vpData = MemoryReader.shared.readBytes(address: vpMatrixAddr, size: 64), vpData.count == 64 else { return }
-        let vpMatrix = vpData.withUnsafeBytes { buf -> [Float] in
-            Array(UnsafeBufferPointer(start: buf.baseAddress?.assumingMemoryBound(to: Float.self), count: 16))
-        }
-        
-        // 4. Lấy vị trí của Local Player để tính khoảng cách
-        let localPlayerPtr = MemoryReader.shared.traceStaticGetter(at: base + 0x32029E0) // GameFacade.CurrentLocalPlayer()
-        var localPlayerPos = Vector3(x: 0, y: 0, z: 0)
-        if localPlayerPtr != 0 {
-            if let localTransform = MemoryReader.shared.read(address: localPlayerPtr + 0x50, type: UInt64.self), localTransform != 0 {
-                if let nativeLocalTrans = MemoryReader.shared.read(address: localTransform + 0x10, type: UInt64.self), nativeLocalTrans != 0 {
-                    if let pos = MemoryReader.shared.read(address: nativeLocalTrans + 0x90, type: Vector3.self) {
-                        localPlayerPos = pos
-                    }
-                }
-            }
-        }
-        
-        // 5. Duyệt qua danh sách người chơi
-        var activePlayers: [FakePlayer] = []
-        let screen = UIScreen.main.bounds
-        
-        for i in 0..<min(Int(size), 100) {
-            guard let playerPtr = MemoryReader.shared.read(address: arrayAddr + 0x20 + UInt64(i * 8), type: UInt64.self), playerPtr != 0 else { continue }
-            if playerPtr == localPlayerPtr { continue }
-            
-            // Đọc trạng thái IsDead (AttackableEntity.FHMPKFMFEPM tại offset 0x74)
-            guard let isDead = MemoryReader.shared.read(address: playerPtr + 0x74, type: Int32.self), isDead != 1 else { continue }
-            
-            // Đọc vị trí từ CachedTransform (offset 0x50 của Entity)
-            guard let transformPtr = MemoryReader.shared.read(address: playerPtr + 0x50, type: UInt64.self), transformPtr != 0 else { continue }
-            guard let nativeTransform = MemoryReader.shared.read(address: transformPtr + 0x10, type: UInt64.self), nativeTransform != 0 else { continue }
-            guard let pos = MemoryReader.shared.read(address: nativeTransform + 0x90, type: Vector3.self) else { continue }
-            
-            let headPos = Vector3(x: pos.x, y: pos.y + 1.8, z: pos.z)
-            
-            // Chiếu lên màn hình
-            guard let screenPosFeet = worldToScreen(world: pos, vpMatrix: vpMatrix, sw: Float(screen.width), sh: Float(screen.height)),
-                  let screenPosHead = worldToScreen(world: headPos, vpMatrix: vpMatrix, sw: Float(screen.width), sh: Float(screen.height)) else { continue }
-            
-            // Đọc tên người chơi (OriginalNickName tại offset 0x3C8)
-            let namePtr = MemoryReader.shared.read(address: playerPtr + 0x3C8, type: UInt64.self) ?? 0
-            let name = readIl2CppString(address: namePtr) ?? "Enemy_\(i)"
-            
-            // Tính khoảng cách
-            let dx = pos.x - localPlayerPos.x
-            let dy = pos.y - localPlayerPos.y
-            let dz = pos.z - localPlayerPos.z
-            let distance = Int(sqrt(dx*dx + dy*dy + dz*dz))
-            
-            let boxHeight = abs(screenPosFeet.y - screenPosHead.y)
-            let boxWidth = boxHeight * 0.5
-            let normCenter = CGPoint(x: screenPosHead.x / screen.width, y: (screenPosHead.y + boxHeight * 0.5) / screen.height)
-            
-            // Dựng khung xương giả lập 3D hướng theo camera
-            var bones: [String: CGPoint] = [:]
-            if hackStates["ESP Skeleton"] == true {
-                let joints = [
-                    "head": headPos,
-                    "chest": Vector3(x: pos.x, y: pos.y + 1.3, z: pos.z),
-                    "hip": Vector3(x: pos.x, y: pos.y + 0.9, z: pos.z),
-                    "leftShoulder": Vector3(x: pos.x - 0.25, y: pos.y + 1.35, z: pos.z),
-                    "rightShoulder": Vector3(x: pos.x + 0.25, y: pos.y + 1.35, z: pos.z),
-                    "leftHand": Vector3(x: pos.x - 0.35, y: pos.y + 0.9, z: pos.z),
-                    "rightHand": Vector3(x: pos.x + 0.35, y: pos.y + 0.9, z: pos.z),
-                    "leftAnkle": Vector3(x: pos.x - 0.18, y: pos.y + 0.45, z: pos.z),
-                    "rightAnkle": Vector3(x: pos.x + 0.18, y: pos.y + 0.45, z: pos.z)
-                ]
-                for (name, jointPos) in joints {
-                    if let pt = worldToScreen(world: jointPos, vpMatrix: vpMatrix, sw: Float(screen.width), sh: Float(screen.height)) {
-                        bones[name] = pt
-                    }
-                }
-            }
-            
-            let p = FakePlayer(name: name, distance: "\(distance)m", hp: 1.0, normCenter: normCenter, size: CGSize(width: boxWidth, height: boxHeight), bones: bones.isEmpty ? nil : bones)
-            activePlayers.append(p)
-        }
-        
-        self.fakePlayers = activePlayers
-        if !activePlayers.isEmpty {
-            updateDebugText("HuyShare ESP: Đã tìm thấy \(activePlayers.count) đối thủ.")
-        } else {
-            updateDebugText("HuyShare ESP: Đang quét người chơi...")
-        }
-    }
-    
-    private func worldToScreen(world: Vector3, vpMatrix: [Float], sw: Float, sh: Float) -> CGPoint? {
-        let x = world.x * vpMatrix[0] + world.y * vpMatrix[4] + world.z * vpMatrix[8] + vpMatrix[12]
-        let y = world.x * vpMatrix[1] + world.y * vpMatrix[5] + world.z * vpMatrix[9] + vpMatrix[13]
-        // Thay:
-_ = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpMatrix[14]// Thành:
-_ = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpMatrix[14]
-        let w = world.x * vpMatrix[3] + world.y * vpMatrix[7] + world.z * vpMatrix[11] + vpMatrix[15]
-        
-        if w < 0.1 { return nil }
-        
-        let ndcX = x / w
-        let ndcY = y / w
-        
-        let screenX = (ndcX + 1.0) * 0.5 * sw
-        let screenY = (1.0 - ndcY) * 0.5 * sh
-        
-        return CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
-    }
-    
-    private func updateESPDrawing() {
+
+    // MARK: - Drawing Logic
+    private func updateCrosshairDrawing() {
         espLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
-        espView.subviews.forEach { if $0 != debugLabel { $0.removeFromSuperview() } }
         
-        let isAnyEspOn = hackStates["ESP Box"]! || hackStates["ESP Line"]! || hackStates["ESP Skeleton"]! || hackStates["ESP Name"]! || hackStates["ESP Health"]! || hackStates["ESP Distance"]!
-        espView.isHidden = !isAnyEspOn && !hackStates["Draw FOV"]!
+        guard crosshairEnabled else { return }
         
-        let screenBounds = UIScreen.main.bounds
+        let center = CGPoint(x: espView.bounds.midX, y: espView.bounds.midY)
+        let path = UIBezierPath()
+        let color = getCrosshairColor()
         
-        // 1. Draw FOV Circle
-        if hackStates["Draw FOV"] == true {
-            let fovRadius: CGFloat = 80
-            let path = UIBezierPath(arcCenter: CGPoint(x: screenBounds.midX, y: screenBounds.midY), radius: fovRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+        let size = crosshairSize
+        let gap = crosshairGap
+        let thickness = crosshairThickness
+        let dotSize = crosshairDotSize
+        
+        // 1. Draw Dot (Styles: Dot=0, Combine/All=4, T-Shape=3)
+        if crosshairStyle == 0 || crosshairStyle == 4 || crosshairStyle == 3 {
+            let dotPath = UIBezierPath(arcCenter: center, radius: dotSize, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+            let dotLayer = CAShapeLayer()
+            dotLayer.path = dotPath.cgPath
+            dotLayer.fillColor = color.cgColor
+            espLayer.addSublayer(dotLayer)
+        }
+        
+        // 2. Draw Classic Cross Lines (Styles: Cross=1, Combine/All=4)
+        if crosshairStyle == 1 || crosshairStyle == 4 {
+            // North
+            path.move(to: CGPoint(x: center.x, y: center.y - gap - size))
+            path.addLine(to: CGPoint(x: center.x, y: center.y - gap))
             
+            // South
+            path.move(to: CGPoint(x: center.x, y: center.y + gap))
+            path.addLine(to: CGPoint(x: center.x, y: center.y + gap + size))
+            
+            // West
+            path.move(to: CGPoint(x: center.x - gap - size, y: center.y))
+            path.addLine(to: CGPoint(x: center.x - gap, y: center.y))
+            
+            // East
+            path.move(to: CGPoint(x: center.x + gap, y: center.y))
+            path.addLine(to: CGPoint(x: center.x + gap + size, y: center.y))
+        }
+        
+        // 3. Draw Circle (Styles: Circle=2, Combine/All=4)
+        if crosshairStyle == 2 || crosshairStyle == 4 {
+            let circlePath = UIBezierPath(arcCenter: center, radius: gap + size / 2, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+            let circleLayer = CAShapeLayer()
+            circleLayer.path = circlePath.cgPath
+            circleLayer.strokeColor = color.cgColor
+            circleLayer.fillColor = UIColor.clear.cgColor
+            circleLayer.lineWidth = thickness
+            espLayer.addSublayer(circleLayer)
+        }
+        
+        // 4. Draw T-Shape Lines (Style: T-Shape=3)
+        if crosshairStyle == 3 {
+            // South
+            path.move(to: CGPoint(x: center.x, y: center.y + gap))
+            path.addLine(to: CGPoint(x: center.x, y: center.y + gap + size))
+            
+            // West
+            path.move(to: CGPoint(x: center.x - gap - size, y: center.y))
+            path.addLine(to: CGPoint(x: center.x - gap, y: center.y))
+            
+            // East
+            path.move(to: CGPoint(x: center.x + gap, y: center.y))
+            path.addLine(to: CGPoint(x: center.x + gap + size, y: center.y))
+        }
+        
+        if path.cgPath.numberOfPoints > 0 {
             let shape = CAShapeLayer()
             shape.path = path.cgPath
-            shape.strokeColor = UIColor.green.cgColor
-            shape.fillColor = UIColor.green.withAlphaComponent(0.03).cgColor
-            shape.lineWidth = 1.0
+            shape.strokeColor = color.cgColor
+            shape.fillColor = UIColor.clear.cgColor
+            shape.lineWidth = thickness
+            shape.lineCap = .round
             espLayer.addSublayer(shape)
         }
-        
-        // 2. Draw Players
-        for player in fakePlayers {
-            let px = player.normCenter.x * screenBounds.width
-            let py = player.normCenter.y * screenBounds.height
-            let pw = player.size.width
-            let ph = player.size.height
-            
-            let rect = CGRect(x: px - pw/2, y: py - ph/2, width: pw, height: ph)
-            
-            // Box
-            if hackStates["ESP Box"] == true {
-                let path = UIBezierPath(rect: rect)
-                let shape = CAShapeLayer()
-                shape.path = path.cgPath
-                shape.strokeColor = UIColor.red.cgColor
-                shape.fillColor = UIColor.red.withAlphaComponent(0.08).cgColor
-                shape.lineWidth = 1.5
-                espLayer.addSublayer(shape)
-            }
-            
-            // Line
-            if hackStates["ESP Line"] == true {
-                let path = UIBezierPath()
-                path.move(to: CGPoint(x: screenBounds.midX, y: screenBounds.height))
-                path.addLine(to: CGPoint(x: px, y: rect.maxY))
-                
-                let shape = CAShapeLayer()
-                shape.path = path.cgPath
-                shape.strokeColor = UIColor.yellow.cgColor
-                shape.lineWidth = 1.0
-                espLayer.addSublayer(shape)
-            }
-            
-            // Skeleton
-            if hackStates["ESP Skeleton"] == true {
-                let path = UIBezierPath()
-                if let bones = player.bones, !bones.isEmpty {
-                    // Vẽ các xương thực tế đọc từ bộ nhớ game
-                    if let head = bones["head"] {
-                        let headRadius = pw * 0.15
-                        path.move(to: CGPoint(x: head.x + headRadius, y: head.y))
-                        path.addArc(withCenter: head, radius: headRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
-                        
-                        if let chest = bones["chest"] {
-                            path.move(to: head)
-                            path.addLine(to: chest)
-                        }
-                    }
-                    if let chest = bones["chest"], let hip = bones["hip"] {
-                        path.move(to: chest)
-                        path.addLine(to: hip)
-                    }
-                    if let leftShoulder = bones["leftShoulder"], let rightShoulder = bones["rightShoulder"] {
-                        path.move(to: leftShoulder)
-                        path.addLine(to: rightShoulder)
-                    }
-                    if let leftShoulder = bones["leftShoulder"], let leftHand = bones["leftHand"] {
-                        path.move(to: leftShoulder)
-                        path.addLine(to: leftHand)
-                    }
-                    if let rightShoulder = bones["rightShoulder"], let rightHand = bones["rightHand"] {
-                        path.move(to: rightShoulder)
-                        path.addLine(to: rightHand)
-                    }
-                    if let hip = bones["hip"], let leftAnkle = bones["leftAnkle"] {
-                        path.move(to: hip)
-                        path.addLine(to: leftAnkle)
-                    }
-                    if let hip = bones["hip"], let rightAnkle = bones["rightAnkle"] {
-                        path.move(to: hip)
-                        path.addLine(to: rightAnkle)
-                    }
-                } else {
-                    // Vẽ các xương giả lập (khi game không chạy)
-                    let headRadius = pw * 0.15
-                    let headCenter = CGPoint(x: px, y: rect.minY + headRadius)
-                    path.addArc(withCenter: headCenter, radius: headRadius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
-                    
-                    let neck = CGPoint(x: px, y: rect.minY + headRadius * 2)
-                    let pelvis = CGPoint(x: px, y: rect.minY + ph * 0.6)
-                    path.move(to: neck)
-                    path.addLine(to: pelvis)
-                    
-                    let leftShoulder = CGPoint(x: px - pw * 0.35, y: rect.minY + ph * 0.25)
-                    let rightShoulder = CGPoint(x: px + pw * 0.35, y: rect.minY + ph * 0.25)
-                    path.move(to: leftShoulder)
-                    path.addLine(to: rightShoulder)
-                    
-                    let leftHand = CGPoint(x: px - pw * 0.45, y: rect.minY + ph * 0.45)
-                    let rightHand = CGPoint(x: px + pw * 0.45, y: rect.minY + ph * 0.45)
-                    path.move(to: leftShoulder)
-                    path.addLine(to: leftHand)
-                    path.move(to: rightShoulder)
-                    path.addLine(to: rightHand)
-                    
-                    let leftFoot = CGPoint(x: px - pw * 0.3, y: rect.maxY)
-                    let rightFoot = CGPoint(x: px + pw * 0.3, y: rect.maxY)
-                    path.move(to: pelvis)
-                    path.addLine(to: leftFoot)
-                    path.move(to: pelvis)
-                    path.addLine(to: rightFoot)
-                }
-                
-                let shape = CAShapeLayer()
-                shape.path = path.cgPath
-                shape.strokeColor = UIColor.green.cgColor
-                shape.fillColor = UIColor.clear.cgColor
-                shape.lineWidth = 1.2
-                espLayer.addSublayer(shape)
-            }
-            
-            // Name
-            if hackStates["ESP Name"] == true {
-                let nameLabel = UILabel()
-                nameLabel.text = player.name
-                nameLabel.textColor = .white
-                nameLabel.font = UIFont.systemFont(ofSize: 9, weight: .bold)
-                nameLabel.sizeToFit()
-                nameLabel.center = CGPoint(x: px, y: rect.minY - 22)
-                espView.addSubview(nameLabel)
-            }
-            
-            // Distance
-            if hackStates["ESP Distance"] == true {
-                let distLabel = UILabel()
-                distLabel.text = player.distance
-                distLabel.textColor = .yellow
-                distLabel.font = UIFont.systemFont(ofSize: 8, weight: .bold)
-                distLabel.sizeToFit()
-                distLabel.center = CGPoint(x: px, y: rect.minY - 10)
-                espView.addSubview(distLabel)
-            }
-            
-            // Health Bar
-            if hackStates["ESP Health"] == true {
-                let hpBarWidth: CGFloat = 3.0
-                let hpBarX = rect.minX - hpBarWidth - 3.0
-                
-                let hpBarBg = UIView(frame: CGRect(x: hpBarX, y: rect.minY, width: hpBarWidth, height: ph))
-                hpBarBg.backgroundColor = .darkGray
-                espView.addSubview(hpBarBg)
-                
-                let hpHeight = ph * player.hp
-                let hpBar = UIView(frame: CGRect(x: hpBarX, y: rect.maxY - hpHeight, width: hpBarWidth, height: hpHeight))
-                hpBar.backgroundColor = player.hp > 0.5 ? .green : .red
-                espView.addSubview(hpBar)
-            }
+    }
+    
+    private func getCrosshairColor() -> UIColor {
+        switch crosshairColorIndex {
+        case 0: return .green
+        case 1: return .red
+        case 2: return .cyan
+        case 3: return .yellow
+        case 4: return .white
+        default: return .green
         }
     }
 
-    // MARK: - DraggableViewDelegate
+    // MARK: - Settings Persistence
+    private func loadSettings() {
+        crosshairEnabled = UserDefaults.standard.object(forKey: "cross_enabled") as? Bool ?? true
+        crosshairStyle = UserDefaults.standard.integer(forKey: "cross_style")
+        crosshairColorIndex = UserDefaults.standard.integer(forKey: "cross_color_index")
+        
+        if let savedSize = UserDefaults.standard.object(forKey: "cross_size") as? Double {
+            crosshairSize = CGFloat(savedSize)
+        } else {
+            crosshairSize = 12
+        }
+        
+        if let savedGap = UserDefaults.standard.object(forKey: "cross_gap") as? Double {
+            crosshairGap = CGFloat(savedGap)
+        } else {
+            crosshairGap = 5
+        }
+        
+        if let savedThickness = UserDefaults.standard.object(forKey: "cross_thickness") as? Double {
+            crosshairThickness = CGFloat(savedThickness)
+        } else {
+            crosshairThickness = 1.5
+        }
+        
+        if let savedDotSize = UserDefaults.standard.object(forKey: "cross_dot_size") as? Double {
+            crosshairDotSize = CGFloat(savedDotSize)
+        } else {
+            crosshairDotSize = 2.0
+        }
+    }
     
+    private func saveSettings() {
+        UserDefaults.standard.set(crosshairEnabled, forKey: "cross_enabled")
+        UserDefaults.standard.set(crosshairStyle, forKey: "cross_style")
+        UserDefaults.standard.set(crosshairColorIndex, forKey: "cross_color_index")
+        UserDefaults.standard.set(Double(crosshairSize), forKey: "cross_size")
+        UserDefaults.standard.set(Double(crosshairGap), forKey: "cross_gap")
+        UserDefaults.standard.set(Double(crosshairThickness), forKey: "cross_thickness")
+        UserDefaults.standard.set(Double(crosshairDotSize), forKey: "cross_dot_size")
+        UserDefaults.standard.synchronize()
+    }
+
+    // MARK: - DraggableViewDelegate
     func didTap(view: DraggableView) {
         let isOpen = !menuPanel.isHidden
         if isOpen {
@@ -899,7 +698,7 @@ _ = world.x * vpMatrix[2] + world.y * vpMatrix[6] + world.z * vpMatrix[10] + vpM
                 self.espView.frame = CGRect(x: 0, y: 0, width: s.width, height: s.height)
             }
             
-            self.updateESPDrawing()
+            self.updateCrosshairDrawing()
         }
     }
 }

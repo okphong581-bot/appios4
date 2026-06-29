@@ -6,7 +6,7 @@ class MainViewController: UIViewController {
     
     private lazy var titleLabel: UILabel = {
         let l = UILabel()
-        l.text = "Hà Nhạy VIP"
+        l.text = "HoangHa Crosshair"
         l.textColor = .white
         l.font = .systemFont(ofSize: 32, weight: .black)
         l.textAlignment = .center
@@ -16,7 +16,7 @@ class MainViewController: UIViewController {
     
     private lazy var subtitleLabel: UILabel = {
         let l = UILabel()
-        l.text = "TrollStore Global Overlay (Pure Swift)"
+        l.text = "Tâm Ảo Nổi Toàn Cục (TrollStore)"
         l.textColor = .lightGray
         l.font = .systemFont(ofSize: 14, weight: .regular)
         l.textAlignment = .center
@@ -26,10 +26,10 @@ class MainViewController: UIViewController {
     
     private lazy var toggleButton: UIButton = {
         let b = UIButton(type: .system)
-        b.setTitle("START MOD", for: .normal)
+        b.setTitle("START CROSSHAIR", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 22, weight: .bold)
-        b.backgroundColor = UIColor(red: 0.62, green: 0.42, blue: 0.98, alpha: 1.0)
+        b.backgroundColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
         b.layer.cornerRadius = 20
         b.translatesAutoresizingMaskIntoConstraints = false
         b.addTarget(self, action: #selector(toggleTapped), for: .touchUpInside)
@@ -38,7 +38,7 @@ class MainViewController: UIViewController {
 
     private lazy var statusLabel: UILabel = {
         let l = UILabel()
-        l.text = "Trạng thái: CHƯA BẬT"
+        l.text = "Trạng thái: ĐANG TẮT"
         l.textColor = .systemRed
         l.font = .systemFont(ofSize: 16, weight: .bold)
         l.textAlignment = .center
@@ -100,14 +100,14 @@ class MainViewController: UIViewController {
     
     private func updateUI() {
         if isOn {
-            toggleButton.setTitle("STOP MOD", for: .normal)
+            toggleButton.setTitle("STOP CROSSHAIR", for: .normal)
             toggleButton.backgroundColor = .systemRed
-            statusLabel.text = "Trạng thái: ĐANG HOẠT ĐỘNG"
+            statusLabel.text = "Trạng thái: ĐANG BẬT"
             statusLabel.textColor = .systemGreen
         } else {
-            toggleButton.setTitle("START MOD", for: .normal)
-            toggleButton.backgroundColor = UIColor(red: 0.62, green: 0.42, blue: 0.98, alpha: 1.0)
-            statusLabel.text = "Trạng thái: CHƯA BẬT"
+            toggleButton.setTitle("START CROSSHAIR", for: .normal)
+            toggleButton.backgroundColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
+            statusLabel.text = "Trạng thái: ĐANG TẮT"
             statusLabel.textColor = .systemRed
         }
     }

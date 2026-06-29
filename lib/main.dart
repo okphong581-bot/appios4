@@ -12,7 +12,7 @@ class HaNhayApp extends StatelessWidget {
   const HaNhayApp({super.key});
   @override
   Widget build(BuildContext ctx) => MaterialApp(
-        title: 'Hà Nhạy VIP',
+        title: 'HoangHa Crosshair',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark().copyWith(
           scaffoldBackgroundColor: const Color(0xFF09070F),
@@ -189,19 +189,19 @@ class _Logo extends StatelessWidget {
                   ],
                 ),
                 child: Icon(
-                  on ? Icons.layers_rounded : Icons.layers_outlined,
+                  on ? Icons.adjust : Icons.adjust_outlined,
                   size: 42,
                   color: Colors.white.withOpacity(on ? 1.0 : 0.5),
                 ),
               ),
             ]),
             const SizedBox(height: 18),
-            Text('Hà Nhạy VIP',
+            Text('HoangHa Crosshair',
                 style: TextStyle(
-                  fontSize: 30,
+                  fontSize: 26,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
-                  letterSpacing: 1.5,
+                  letterSpacing: 1.2,
                   shadows: on
                       ? [Shadow(
                           color: const Color(0xFF9D6AFA).withOpacity(0.6),
@@ -209,7 +209,7 @@ class _Logo extends StatelessWidget {
                       : null,
                 )),
             const SizedBox(height: 5),
-            Text('TrollStore Global Overlay',
+            Text('Tâm Ảo Nổi Toàn Cục (TrollStore)',
                 style: TextStyle(
                   fontSize: 12.5,
                   color: Colors.white.withOpacity(0.35),
@@ -257,7 +257,7 @@ class _StatusChip extends StatelessWidget {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(
-                on ? 'OVERLAY ĐANG HOẠT ĐỘNG' : 'OVERLAY CHƯA BẬT',
+                on ? 'TÂM ẢO ĐANG HOẠT ĐỘNG' : 'TÂM ẢO ĐANG TẮT',
                 style: TextStyle(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w800,
@@ -270,8 +270,8 @@ class _StatusChip extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 on
-                    ? '"Hà Nhạy VIP" đang nổi bên trên tất cả app'
-                    : 'Nhấn START MOD để kích hoạt overlay',
+                    ? '"HoangHa Crosshair" đang nổi bên trên màn hình'
+                    : 'Nhấn START CROSSHAIR để bật tâm ảo',
                 style: TextStyle(
                   fontSize: 12.5,
                   color: Colors.white.withOpacity(on ? 0.75 : 0.4),
@@ -329,10 +329,10 @@ class _BigButton extends StatelessWidget {
                     Text(
                       on ? 'STOP MOD' : 'START MOD',
                       style: const TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
-                        letterSpacing: 2.5,
+                        letterSpacing: 2.0,
                       ),
                     ),
                   ]),
@@ -364,7 +364,7 @@ class _Hint extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Thoát app → menu vẫn nổi\nVào lại → nhấn STOP MOD để tắt',
+                      'Thoát app → tâm ảo vẫn nổi\nVào lại → nhấn STOP MOD để tắt',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.white.withOpacity(0.6),
@@ -376,7 +376,7 @@ class _Hint extends StatelessWidget {
               )
             : Text(
                 key: const ValueKey('off'),
-                'Nhấn START MOD → "Hà Nhạy VIP" sẽ nổi\nlên trên tất cả ứng dụng khác.',
+                'Nhấn START MOD → Tâm ảo sẽ nổi\nlên trên chính giữa màn hình điện thoại.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13.5,
@@ -393,7 +393,7 @@ class _Footer extends StatelessWidget {
   const _Footer({required this.on});
   @override
   Widget build(BuildContext ctx) => Text(
-        on ? '🟢 Overlay active — kéo để di chuyển' : 'Yêu cầu TrollStore · iOS 14+',
+        on ? '🟢 Tâm ảo active — chạm MENU ⚙️ để cấu hình' : 'Yêu cầu TrollStore · iOS 14+',
         textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: 11.5,

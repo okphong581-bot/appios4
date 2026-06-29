@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// MemoryReader - Stub Class (Đã vô hiệu hóa)
 /// Lớp này đã được gỡ bỏ toàn bộ tính năng đọc/ghi bộ nhớ tiến trình để bảo mật hệ thống.

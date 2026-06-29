@@ -429,7 +429,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         row.addSubview(slider)
         
         let valLabel = UILabel()
-        valLabel.text = String(format: "%.1f", currentVal)
+        valLabel.text = String(format: "%.1f", Double(currentVal))
         valLabel.textColor = .lightGray
         valLabel.font = UIFont.systemFont(ofSize: 11)
         valLabel.textAlignment = .right
@@ -483,7 +483,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         }
         
         if let valLabel = contentStackView.viewWithTag(sender.tag + 100) as? UILabel {
-            valLabel.text = String(format: "%.1f", val)
+            valLabel.text = String(format: "%.1f", Double(val))
         }
         
         saveSettings()
@@ -544,7 +544,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         
         // 3. Draw Circle (Styles: Circle=2, Combine/All=4)
         if crosshairStyle == 2 || crosshairStyle == 4 {
-            let circlePath = UIBezierPath(arcCenter: center, radius: gap + size / 2, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+            let circlePath = UIBezierPath(arcCenter: center, radius: gap + (size / 2.0), startAngle: 0, endAngle: .pi * 2, clockwise: true)
             let circleLayer = CAShapeLayer()
             circleLayer.path = circlePath.cgPath
             circleLayer.strokeColor = color.cgColor

@@ -26,3 +26,4 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hanhay.vip
         GENERATE_INFOPLIST_FILE: "NO"
         SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/Sources/BridgingHeader.h"
+        OTHER_LDFLAGS: "-weak_framework IOKit"

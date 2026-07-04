@@ -48,13 +48,31 @@ class TouchInjector {
 
     // MARK: - Dynamic loading
     private func loadSymbols() {
-        // Tải private framework
-        let handle = dlopen("/System/Library/PrivateFrameworks/IOKit.framework/IOKit", RTLD_LAZY)
-            ?? dlopen("/usr/lib/libIOKit.dylib", RTLD_LAZY)
-            ?? dlopen(nil, RTLD_LAZY)  // fallback: tìm trong process hiện tại
+        let paths = [
+            "/System/Library/Frameworks/IOKit.framework/IOKit",
+            "/System/Library/PrivateFrameworks/IOKit.framework/IOKit",
+            "/usr/lib/libIOKit.dylib"
+        ]
+        
+        var handle: UnsafeMutableRawPointer? = nil
+        for path in paths {
+            handle = dlopen(path, RTLD_LAZY)
+            if handle != nil {
+                print("[TouchInjector] Đã load thư viện từ: \(path)")
+                break
+            }
+        }
+        
+        if handle == nil {
+            handle = dlopen(nil, RTLD_LAZY)
+            print("[TouchInjector] Fallback load nil handle")
+        }
 
         func sym<T>(_ name: String) -> T? {
-            guard let ptr = dlsym(handle, name) else { return nil }
+            guard let ptr = dlsym(handle, name) else {
+                print("[TouchInjector] ❌ Không tìm thấy symbol: \(name)")
+                return nil
+            }
             return unsafeBitCast(ptr, to: T.self)
         }
 
@@ -67,7 +85,7 @@ class TouchInjector {
         fnCreateFinger    = sym("IOHIDEventCreateDigitizerFingerEvent")
 
         let loaded = fnCreateClient != nil
-        print("[TouchInjector] Symbols loaded: \(loaded)")
+        print("[TouchInjector] Khởi tạo symbols: \(loaded)")
     }
 
     private func setupClient() {
@@ -120,11 +138,11 @@ class TouchInjector {
         guard let hand = createHand(
             kCFAllocatorDefault, ts,
             2, 0xFFFF0001, 1, mask, 0,
-            x, y, 0.0, 0.0, 0.0,
+            x, y, 0.0, 1.0, 0.0, // Đặt pressure = 1.0
             true, true, 0
         ) else { return }
 
-        setSenderFn(hand, 0)
+        setSenderFn(hand, 0x0000000100000001) // Sử dụng SenderID giả lập BackBoardServices
         appendFn(hand, finger)
         dispatchFn(client, hand)
     }
@@ -154,7 +172,7 @@ class TouchInjector {
             false, false, 0
         ) else { return }
 
-        setSenderFn(hand, 0)
+        setSenderFn(hand, 0x0000000100000001) // Sử dụng SenderID giả lập BackBoardServices
         appendFn(hand, finger)
         dispatchFn(client, hand)
     }

@@ -11,6 +11,7 @@ class TouchInjector {
 
     // MARK: - Function pointer types
     typealias CreateClientFn    = @convention(c) (CFAllocator?) -> CFTypeRef?
+    typealias CreateClientWithTypeFn = @convention(c) (CFAllocator?, UInt32, CFDictionary?) -> CFTypeRef?
     typealias ScheduleClientFn  = @convention(c) (CFTypeRef, CFRunLoop, CFString) -> Void
     typealias DispatchEventFn   = @convention(c) (CFTypeRef, CFTypeRef) -> Void
     typealias AppendEventFn     = @convention(c) (CFTypeRef, CFTypeRef) -> Void
@@ -30,14 +31,20 @@ class TouchInjector {
         Bool, Bool, UInt32
     ) -> CFTypeRef?
 
+    typealias SetDigitizerInfoFn = @convention(c) (
+        CFTypeRef, UInt32, UInt8, UInt8, CFStringRef?, Double, Float
+    ) -> Void
+
     // MARK: - Loaded functions
     private var fnCreateClient:    CreateClientFn?
+    private var fnCreateClientWithType: CreateClientWithTypeFn?
     private var fnSchedule:        ScheduleClientFn?
     private var fnDispatch:        DispatchEventFn?
     private var fnAppend:          AppendEventFn?
     private var fnSetSender:       SetSenderFn?
     private var fnCreateDigitizer: CreateDigitizerFn?
     private var fnCreateFinger:    CreateFingerFn?
+    private var fnSetDigitizerInfo: SetDigitizerInfoFn?
 
     private var hidClient: CFTypeRef?
 
@@ -76,31 +83,50 @@ class TouchInjector {
             return unsafeBitCast(ptr, to: T.self)
         }
 
-        fnCreateClient    = sym("IOHIDEventSystemClientCreate")
-        fnSchedule        = sym("IOHIDEventSystemClientScheduleWithRunLoop")
-        fnDispatch        = sym("IOHIDEventSystemClientDispatchEvent")
-        fnAppend          = sym("IOHIDEventAppendEvent")
-        fnSetSender       = sym("IOHIDEventSetSenderID")
-        fnCreateDigitizer = sym("IOHIDEventCreateDigitizerEvent")
-        fnCreateFinger    = sym("IOHIDEventCreateDigitizerFingerEvent")
+        fnCreateClient          = sym("IOHIDEventSystemClientCreate")
+        fnCreateClientWithType  = sym("IOHIDEventSystemClientCreateWithType")
+        fnSchedule              = sym("IOHIDEventSystemClientScheduleWithRunLoop")
+        fnDispatch              = sym("IOHIDEventSystemClientDispatchEvent")
+        fnAppend                = sym("IOHIDEventAppendEvent")
+        fnSetSender             = sym("IOHIDEventSetSenderID")
+        fnCreateDigitizer       = sym("IOHIDEventCreateDigitizerEvent")
+        fnCreateFinger          = sym("IOHIDEventCreateDigitizerFingerEvent")
 
-        let loaded = fnCreateClient != nil
+        // Load BKSHIDEventSetDigitizerInfo from BackBoardServices
+        let bksHandle = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_LAZY)
+        if bksHandle != nil {
+            if let ptr = dlsym(bksHandle, "BKSHIDEventSetDigitizerInfo") {
+                fnSetDigitizerInfo = unsafeBitCast(ptr, to: SetDigitizerInfoFn.self)
+                print("[TouchInjector] Loaded BKSHIDEventSetDigitizerInfo")
+            } else {
+                print("[TouchInjector] ❌ Cannot find BKSHIDEventSetDigitizerInfo in BackBoardServices")
+            }
+        } else {
+            print("[TouchInjector] ❌ Cannot load BackBoardServices framework")
+        }
+
+        let loaded = fnCreateClient != nil || fnCreateClientWithType != nil
         print("[TouchInjector] Khởi tạo symbols: \(loaded)")
     }
 
     private func setupClient() {
-        guard let createFn = fnCreateClient,
-              let scheduleFn = fnSchedule else {
-            print("[TouchInjector] ❌ Không load được symbol")
-            return
+        if let createWithTypeFn = fnCreateClientWithType {
+            // kIOHIDEventSystemClientTypeSystem = 1
+            hidClient = createWithTypeFn(kCFAllocatorDefault, 1, nil)
+            print("[TouchInjector] Created client with type 1: \(hidClient != nil)")
         }
-        guard let client = createFn(kCFAllocatorDefault) else {
-            print("[TouchInjector] ❌ Không tạo được client")
-            return
+        
+        if hidClient == nil, let createFn = fnCreateClient {
+            hidClient = createFn(kCFAllocatorDefault)
+            print("[TouchInjector] Fallback created client: \(hidClient != nil)")
         }
-        scheduleFn(client, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue as CFString)
-        hidClient = client
-        print("[TouchInjector] ✅ Client ready")
+        
+        if let client = hidClient, let scheduleFn = fnSchedule {
+            scheduleFn(client, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue as CFString)
+            print("[TouchInjector] Scheduled client on runloop")
+        } else {
+            print("[TouchInjector] ❌ Failed to setup client")
+        }
     }
 
     // MARK: - Public API
@@ -138,11 +164,17 @@ class TouchInjector {
         guard let hand = createHand(
             kCFAllocatorDefault, ts,
             2, 0xFFFF0001, 1, mask, 0,
-            x, y, 0.0, 1.0, 0.0, // Đặt pressure = 1.0
+            x, y, 0.0, 1.0, 0.0,
             true, true, 0
         ) else { return }
 
-        setSenderFn(hand, 0x0000000100000001) // Sử dụng SenderID giả lập BackBoardServices
+        setSenderFn(hand, 0x0000000100000001)
+        
+        // Set digitizer info
+        if let setDigitizerInfoFn = fnSetDigitizerInfo {
+            setDigitizerInfoFn(hand, 0, 0, 0, "main" as CFString, 0.0, 0.0)
+        }
+        
         appendFn(hand, finger)
         dispatchFn(client, hand)
     }
@@ -172,7 +204,13 @@ class TouchInjector {
             false, false, 0
         ) else { return }
 
-        setSenderFn(hand, 0x0000000100000001) // Sử dụng SenderID giả lập BackBoardServices
+        setSenderFn(hand, 0x0000000100000001)
+        
+        // Set digitizer info
+        if let setDigitizerInfoFn = fnSetDigitizerInfo {
+            setDigitizerInfoFn(hand, 0, 0, 0, "main" as CFString, 0.0, 0.0)
+        }
+        
         appendFn(hand, finger)
         dispatchFn(client, hand)
     }

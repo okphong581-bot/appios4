@@ -275,7 +275,28 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         return l
     }()
 
+    private lazy var logConsole: UILabel = {
+        let l = UILabel()
+        l.textColor = UIColor(red: 0.1, green: 0.9, blue: 0.2, alpha: 1)
+        l.backgroundColor = UIColor(red: 0.02, green: 0.02, blue: 0.06, alpha: 0.9)
+        l.font = UIFont.monospacedSystemFont(ofSize: 8, weight: .regular)
+        l.numberOfLines = 8
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.layer.cornerRadius = 8
+        l.layer.masksToBounds = true
+        l.layer.borderWidth = 1
+        l.layer.borderColor = UIColor(red: 0.2, green: 0.8, blue: 0.2, alpha: 0.3).cgColor
+        l.text = "Logs:\n"
+        return l
+    }()
+
+    private func updateLogs() {
+        let allLogs = TouchInjector.shared.logs.joined(separator: "\n")
+        logConsole.text = allLogs.isEmpty ? "No logs" : allLogs
+    }
+
     func updateDebugText(_ text: String) {}
+
 
     // MARK: - Helper
     private func makeActionButton(title: String, color: UIColor) -> UIButton {
@@ -388,6 +409,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         let repeatRow = makeHStack([repeatLabel, repeatStepper])
         panel.addSubview(repeatRow)
 
+        panel.addSubview(logConsole)
+
         let footerLabel = UILabel()
         footerLabel.text = "⚡ AutoTouch VIP — TrollStore"
         footerLabel.textColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 0.7)
@@ -439,7 +462,12 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
             repeatRow.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
             repeatRow.heightAnchor.constraint(equalToConstant: 36),
 
-            footerLabel.topAnchor.constraint(equalTo: repeatRow.bottomAnchor, constant: 10),
+            logConsole.topAnchor.constraint(equalTo: repeatRow.bottomAnchor, constant: 10),
+            logConsole.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            logConsole.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+            logConsole.heightAnchor.constraint(equalToConstant: 100),
+
+            footerLabel.topAnchor.constraint(equalTo: logConsole.bottomAnchor, constant: 10),
             footerLabel.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
             footerLabel.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -10)
         ])
@@ -629,6 +657,7 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
                 statusLabel.text = "✅ \(count) điểm • Nhấn ▶️ để chạy"
             }
         }
+        updateLogs()
     }
 
     // MARK: - DraggableViewDelegate

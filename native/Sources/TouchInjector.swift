@@ -10,6 +10,20 @@ import CoreFoundation
 class TouchInjector {
     static let shared = TouchInjector()
 
+    var logs: [String] = []
+
+    func log(_ msg: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        let timeStr = formatter.string(from: Date())
+        let line = "[\(timeStr)] \(msg)"
+        logs.append(line)
+        if logs.count > 15 {
+            logs.removeFirst()
+        }
+        print(line)
+    }
+
     // MARK: - Function pointer types
     typealias CreateClientFn    = @convention(c) (CFAllocator?) -> CFTypeRef?
     typealias CreateClientWithTypeFn = @convention(c) (CFAllocator?, UInt32, CFDictionary?) -> CFTypeRef?
@@ -50,6 +64,7 @@ class TouchInjector {
     private var hidClient: CFTypeRef?
 
     private init() {
+        log("Khởi tạo TouchInjector...")
         loadSymbols()
         setupClient()
     }
@@ -66,19 +81,19 @@ class TouchInjector {
         for path in paths {
             handle = dlopen(path, RTLD_LAZY)
             if handle != nil {
-                print("[TouchInjector] Đã load thư viện từ: \(path)")
+                log("Đã load IOKit từ: \(path)")
                 break
             }
         }
         
         if handle == nil {
             handle = dlopen(nil, RTLD_LAZY)
-            print("[TouchInjector] Fallback load nil handle")
+            log("Fallback load nil handle")
         }
 
         func sym<T>(_ name: String) -> T? {
             guard let ptr = dlsym(handle, name) else {
-                print("[TouchInjector] ❌ Không tìm thấy symbol: \(name)")
+                log("❌ Không tìm thấy symbol: \(name)")
                 return nil
             }
             return unsafeBitCast(ptr, to: T.self)
@@ -98,35 +113,35 @@ class TouchInjector {
         if bksHandle != nil {
             if let ptr = dlsym(bksHandle, "BKSHIDEventSetDigitizerInfo") {
                 fnSetDigitizerInfo = unsafeBitCast(ptr, to: SetDigitizerInfoFn.self)
-                print("[TouchInjector] Loaded BKSHIDEventSetDigitizerInfo")
+                log("Đã load BKSHIDEventSetDigitizerInfo")
             } else {
-                print("[TouchInjector] ❌ Cannot find BKSHIDEventSetDigitizerInfo in BackBoardServices")
+                log("❌ Không tìm thấy BKSHIDEventSetDigitizerInfo")
             }
         } else {
-            print("[TouchInjector] ❌ Cannot load BackBoardServices framework")
+            log("❌ Không load được BackBoardServices framework")
         }
 
         let loaded = fnCreateClient != nil || fnCreateClientWithType != nil
-        print("[TouchInjector] Khởi tạo symbols: \(loaded)")
+        log("Khởi tạo symbols xong. Loaded client function: \(loaded)")
     }
 
     private func setupClient() {
         if let createWithTypeFn = fnCreateClientWithType {
             // kIOHIDEventSystemClientTypeSystem = 1
             hidClient = createWithTypeFn(kCFAllocatorDefault, 1, nil)
-            print("[TouchInjector] Created client with type 1: \(hidClient != nil)")
+            log("Tạo client loại 1 (System): \(hidClient != nil)")
         }
         
         if hidClient == nil, let createFn = fnCreateClient {
             hidClient = createFn(kCFAllocatorDefault)
-            print("[TouchInjector] Fallback created client: \(hidClient != nil)")
+            log("Tạo client fallback: \(hidClient != nil)")
         }
         
         if let client = hidClient, let scheduleFn = fnSchedule {
             scheduleFn(client, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue as CFString)
-            print("[TouchInjector] Scheduled client on runloop")
+            log("Đã schedule client lên runloop")
         } else {
-            print("[TouchInjector] ❌ Failed to setup client")
+            log("❌ Không setup được client")
         }
     }
 
@@ -135,6 +150,7 @@ class TouchInjector {
     func sendTap(at point: CGPoint) {
         let rx = Double(point.x)
         let ry = Double(point.y)
+        log("Tap tại: (\(rx), \(ry))")
         touchDown(x: rx, y: ry)
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.08) {
             self.touchUp(x: rx, y: ry)
@@ -144,12 +160,30 @@ class TouchInjector {
     // MARK: - Private helpers
 
     private func touchDown(x: Double, y: Double) {
-        guard let client = hidClient,
-              let createFinger = fnCreateFinger,
-              let createHand   = fnCreateDigitizer,
-              let appendFn     = fnAppend,
-              let setSenderFn  = fnSetSender,
-              let dispatchFn   = fnDispatch else { return }
+        guard let client = hidClient else {
+            log("❌ client nil")
+            return
+        }
+        guard let createFinger = fnCreateFinger else {
+            log("❌ createFinger nil")
+            return
+        }
+        guard let createHand = fnCreateDigitizer else {
+            log("❌ createHand nil")
+            return
+        }
+        guard let appendFn = fnAppend else {
+            log("❌ appendFn nil")
+            return
+        }
+        guard let setSenderFn = fnSetSender else {
+            log("❌ setSenderFn nil")
+            return
+        }
+        guard let dispatchFn = fnDispatch else {
+            log("❌ dispatchFn nil")
+            return
+        }
 
         let ts  = mach_absolute_time()
         let mask: UInt32 = 0x00000004 | 0x00000001 // touch + range
@@ -159,24 +193,30 @@ class TouchInjector {
             1, 1, mask,
             x, y, 0.0, 1.0, 0.0,
             true, true, 0
-        ) else { return }
+        ) else {
+            log("❌ Lỗi tạo finger event")
+            return
+        }
 
         guard let hand = createHand(
             kCFAllocatorDefault, ts,
             2, 0xFFFF0001, 1, mask, 0,
             x, y, 0.0, 1.0, 0.0,
             true, true, 0
-        ) else { return }
+        ) else {
+            log("❌ Lỗi tạo hand event")
+            return
+        }
 
         setSenderFn(hand, 0x0000000100000001)
         
-        // Set digitizer info
         if let setDigitizerInfoFn = fnSetDigitizerInfo {
             setDigitizerInfoFn(hand, 0, 0, 0, nil, 0.0, 0.0)
         }
         
         appendFn(hand, finger)
         dispatchFn(client, hand)
+        log("Đã gửi TouchDown")
     }
 
     private func touchUp(x: Double, y: Double) {
@@ -206,12 +246,12 @@ class TouchInjector {
 
         setSenderFn(hand, 0x0000000100000001)
         
-        // Set digitizer info
         if let setDigitizerInfoFn = fnSetDigitizerInfo {
             setDigitizerInfoFn(hand, 0, 0, 0, nil, 0.0, 0.0)
         }
         
         appendFn(hand, finger)
         dispatchFn(client, hand)
+        log("Đã gửi TouchUp")
     }
 }

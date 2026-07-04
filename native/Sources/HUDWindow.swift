@@ -2,21 +2,26 @@ import UIKit
 
 class HUDWindow: UIWindow {
     
-    // Override các hàm private để iOS hiểu đây là cửa sổ hệ thống và được host qua SBSAccessibilityWindowHostingController
+    // Override các hàm private để iOS hiểu đây là cửa sổ hệ thống
     @objc func _isSystemWindow() -> Bool { return true }
     @objc func _isWindowServerHostingManaged() -> Bool { return false }
     @objc func _isSecure() -> Bool { return true }
     @objc func _shouldCreateContextAsSecure() -> Bool { return true }
     
-    // Cho phép click xuyên qua những khoảng trống (không có UI)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if let vc = self.rootViewController as? OverlayViewController {
-            vc.updateDebugText("hitTest called at:\n X: \(Int(point.x)), Y: \(Int(point.y))\nEvent: \(String(describing: event))")
-        }
-        
         let hitView = super.hitTest(point, with: event)
         
-        // Nếu hitView là chính window hoặc view nền của root view controller (tức là chạm vào chỗ trống), cho xuyên qua
+        // Nếu đang ở chế độ ghi điểm (recording), cho phép bắt tất cả touches
+        if let vc = self.rootViewController as? OverlayViewController, vc.isRecordingMode {
+            // Bỏ qua menu button và panel để chúng vẫn hoạt động bình thường
+            if let hit = hitView, hit != self, hit != vc.view {
+                return hit
+            }
+            // Trả về view chính để bắt touches khi chạm vào vùng trống
+            return vc.view
+        }
+        
+        // Chế độ bình thường: cho xuyên qua vùng trống
         if hitView == self || hitView == self.rootViewController?.view {
             return nil
         }

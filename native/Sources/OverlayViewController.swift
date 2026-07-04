@@ -111,6 +111,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     private var touchPoints: [TouchPoint] = []
     private var markerViews: [PointMarkerView] = []
     private var isRecording = false
+    /// Expose cho HUDWindow để biết có cần bắt touches hay không
+    var isRecordingMode: Bool { return isRecording }
     private var isPlaying = false
     private var playTimer: Timer?
     private var currentPlayIndex = 0
@@ -324,6 +326,8 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     private func setupAddModeOverlay() {
         addModeOverlay.frame = view.bounds
         addModeOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Mặc định isUserInteractionEnabled = false để không chặn touches khi không record
+        addModeOverlay.isUserInteractionEnabled = false
         view.addSubview(addModeOverlay)
 
         view.addSubview(addModeLabel)
@@ -455,10 +459,12 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         guard isRecording, let touch = touches.first else { return }
         let point = touch.location(in: view)
 
-        // Bỏ qua nếu chạm vào menu button hoặc panel
-        if menuButton.frame.contains(point) || (!panel.isHidden && panel.frame.contains(point)) {
-            return
-        }
+        // Bỏ qua nếu chạm vào menu button
+        if menuButton.frame.contains(point) { return }
+        // Bỏ qua nếu panel đang mở và chạm vào panel
+        if !panel.isHidden && panel.frame.contains(point) { return }
+        // Bỏ qua nếu chạm vào nhãn hướng dẫn ở đáy
+        if addModeLabel.frame.contains(point) { return }
 
         addTouchPoint(at: point)
     }
@@ -488,13 +494,13 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
     @objc private func addPointTapped() {
         isRecording.toggle()
         if isRecording {
-            // Enter add mode
+            // Enter add mode — đóng panel để tránh nhầm lẫn
             closePanel()
             addModeOverlay.isHidden = false
             addModeLabel.isHidden = false
-            addModeOverlay.isUserInteractionEnabled = false // Let touches through to self
             view.bringSubviewToFront(addModeLabel)
             view.bringSubviewToFront(menuButton)
+            // HUDWindow sẽ tự nhận isRecordingMode = true và route touches về view này
         } else {
             // Exit add mode
             addModeOverlay.isHidden = true

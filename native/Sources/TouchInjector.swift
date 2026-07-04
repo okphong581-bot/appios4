@@ -20,14 +20,14 @@ class TouchInjector {
 
     typealias CreateDigitizerFn = @convention(c) (
         CFAllocator?, UInt64,
-        UInt32, UInt32, UInt32, UInt32, UInt32,
+        uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
         Double, Double, Double, Double, Double,
         Bool, Bool, UInt32
     ) -> CFTypeRef?
 
     typealias CreateFingerFn = @convention(c) (
         CFAllocator?, UInt64,
-        UInt32, UInt32, UInt32,
+        uint32_t, uint32_t, uint32_t,
         Double, Double, Double, Double, Double,
         Bool, Bool, UInt32
     ) -> CFTypeRef?
@@ -133,12 +133,12 @@ class TouchInjector {
     // MARK: - Public API
 
     func sendTap(at point: CGPoint) {
-        let screen = UIScreen.main.bounds
-        let nx = Double(point.x / screen.width)
-        let ny = Double(point.y / screen.height)
-        touchDown(x: nx, y: ny)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.06) {
-            self.touchUp(x: nx, y: ny)
+        // Cần truyền trực tiếp toạ độ pixel thực tế (raw screen coordinates), không dùng toạ độ chuẩn hoá 0.0 - 1.0!
+        let rx = Double(point.x)
+        let ry = Double(point.y)
+        touchDown(x: rx, y: ry)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.08) {
+            self.touchUp(x: rx, y: ry)
         }
     }
 
@@ -173,7 +173,8 @@ class TouchInjector {
         
         // Set digitizer info
         if let setDigitizerInfoFn = fnSetDigitizerInfo {
-            setDigitizerInfoFn(hand, 0, 0, 0, "main" as CFString, 0.0, 0.0)
+            // Dùng display UUID là nil để tự động định tuyến toàn hệ thống
+            setDigitizerInfoFn(hand, 0, 0, 0, nil, 0.0, 0.0)
         }
         
         appendFn(hand, finger)
@@ -209,7 +210,7 @@ class TouchInjector {
         
         // Set digitizer info
         if let setDigitizerInfoFn = fnSetDigitizerInfo {
-            setDigitizerInfoFn(hand, 0, 0, 0, "main" as CFString, 0.0, 0.0)
+            setDigitizerInfoFn(hand, 0, 0, 0, nil, 0.0, 0.0)
         }
         
         appendFn(hand, finger)

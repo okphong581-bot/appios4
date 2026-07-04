@@ -1,14 +1,20 @@
 import UIKit
 import CoreFoundation
 
+// MARK: - Darwin notification bridge
 private func darwinNotificationCallback(center: CFNotificationCenter?, observer: UnsafeMutableRawPointer?, name: CFNotificationName?, object: UnsafeRawPointer?, userInfo: CFDictionary?) {
     guard let observer = observer else { return }
-    let mySelf = Unmanaged<OverlayViewController>.fromOpaque(observer).takeUnretainedValue()
-    DispatchQueue.main.async {
-        mySelf.handleRotation()
-    }
+    let vc = Unmanaged<OverlayViewController>.fromOpaque(observer).takeUnretainedValue()
+    DispatchQueue.main.async { vc.handleRotation() }
 }
 
+// MARK: - Models
+struct TouchPoint {
+    var position: CGPoint
+    var order: Int
+}
+
+// MARK: - DraggableView
 protocol DraggableViewDelegate: AnyObject {
     func didTap(view: DraggableView)
     func didDrag(view: DraggableView, to center: CGPoint)
@@ -20,635 +26,626 @@ class DraggableView: UIView {
     private var startLocation: CGPoint = .zero
     private var startCenter: CGPoint = .zero
     private var isDragging = false
-    
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-        startLocation = touch.location(in: self.superview)
-        startCenter = self.center
+        startLocation = touch.location(in: superview)
+        startCenter = center
         isDragging = false
-        
-        UIView.animate(withDuration: 0.15) {
-            self.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
-        }
+        UIView.animate(withDuration: 0.12) { self.transform = CGAffineTransform(scaleX: 1.08, y: 1.08) }
     }
-    
+
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-        let location = touch.location(in: self.superview)
-        
-        let dx = location.x - startLocation.x
-        let dy = location.y - startLocation.y
-        let distance = hypot(dx, dy)
-        
-        if distance > 5 {
+        let loc = touch.location(in: superview)
+        let dx = loc.x - startLocation.x
+        let dy = loc.y - startLocation.y
+        if hypot(dx, dy) > 5 {
             isDragging = true
-            let newCenter = CGPoint(x: startCenter.x + dx, y: startCenter.y + dy)
-            self.center = newCenter
-            delegate?.didDrag(view: self, to: newCenter)
+            center = CGPoint(x: startCenter.x + dx, y: startCenter.y + dy)
+            delegate?.didDrag(view: self, to: center)
         }
     }
-    
+
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        UIView.animate(withDuration: 0.2) {
-            self.transform = .identity
-        }
-        if !isDragging {
-            delegate?.didTap(view: self)
-        } else {
-            delegate?.didEndDrag(view: self)
-        }
+        UIView.animate(withDuration: 0.18) { self.transform = .identity }
+        isDragging ? delegate?.didEndDrag(view: self) : delegate?.didTap(view: self)
         isDragging = false
     }
-    
+
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         touchesEnded(touches, with: event)
     }
 }
 
-class HackSwitch: UISwitch {
-    var hackTitle: String = ""
+// MARK: - Point Marker View
+class PointMarkerView: UIView {
+    let index: Int
+    private let label = UILabel()
+    private let pulse = UIView()
+
+    init(at point: CGPoint, index: Int) {
+        self.index = index
+        super.init(frame: CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44))
+        setup()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setup() {
+        layer.cornerRadius = 22
+        backgroundColor = UIColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 0.85)
+        layer.borderWidth = 2
+        layer.borderColor = UIColor.white.cgColor
+        layer.shadowColor = UIColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 1).cgColor
+        layer.shadowOpacity = 0.8
+        layer.shadowRadius = 8
+
+        label.text = "\(index)"
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 16, weight: .black)
+        label.textAlignment = .center
+        label.frame = bounds
+        addSubview(label)
+    }
+
+    func animateActive() {
+        UIView.animate(withDuration: 0.15, animations: {
+            self.transform = CGAffineTransform(scaleX: 1.4, y: 1.4)
+            self.backgroundColor = UIColor(red: 1.0, green: 0.3, blue: 0.3, alpha: 0.95)
+            self.layer.shadowColor = UIColor.red.cgColor
+        }) { _ in
+            UIView.animate(withDuration: 0.2) {
+                self.transform = .identity
+                self.backgroundColor = UIColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 0.85)
+                self.layer.shadowColor = UIColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 1).cgColor
+            }
+        }
+    }
 }
 
+// MARK: - OverlayViewController
 class OverlayViewController: UIViewController, DraggableViewDelegate {
 
-    // MARK: - State Variables
-    private var crosshairEnabled: Bool = true
-    private var crosshairStyle: Int = 1 // 0: Dot, 1: Cross, 2: Circle, 3: T-Shape, 4: Combine
-    private var crosshairColorIndex: Int = 0 // 0: Green, 1: Red, 2: Cyan, 3: Yellow, 4: White
-    private var crosshairSize: CGFloat = 12
-    private var crosshairGap: CGFloat = 5
-    private var crosshairThickness: CGFloat = 1.5
-    private var crosshairDotSize: CGFloat = 2.0
+    // MARK: - State
+    private var touchPoints: [TouchPoint] = []
+    private var markerViews: [PointMarkerView] = []
+    private var isRecording = false
+    private var isPlaying = false
+    private var playTimer: Timer?
+    private var currentPlayIndex = 0
+    private var repeatCount = 0       // 0 = vô tận
+    private var currentRepeat = 0
+    private var delayMs: Double = 300 // mỗi bước cách nhau bao nhiêu ms
+    private var isMenuOpen = false
 
-    // MARK: - UI Views
+    // MARK: - UI
     private lazy var menuButton: DraggableView = {
         let v = DraggableView()
-        v.backgroundColor = UIColor(red: 26/255, green: 23/255, blue: 48/255, alpha: 0.9)
-        v.layer.cornerRadius = 25
-        v.layer.borderWidth = 1.5
-        v.layer.borderColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.8).cgColor
-        v.layer.shadowColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.8).cgColor
-        v.layer.shadowOpacity = 0.8
-        v.layer.shadowRadius = 8
+        v.backgroundColor = UIColor(red: 0.08, green: 0.08, blue: 0.15, alpha: 0.92)
+        v.layer.cornerRadius = 26
+        v.layer.borderWidth = 2
+        v.layer.borderColor = UIColor(red: 0.2, green: 0.7, blue: 1.0, alpha: 0.9).cgColor
+        v.layer.shadowColor = UIColor(red: 0.2, green: 0.7, blue: 1.0, alpha: 1).cgColor
+        v.layer.shadowOpacity = 0.7
+        v.layer.shadowRadius = 10
         v.isUserInteractionEnabled = true
         return v
     }()
 
-    private lazy var menuLabel: UILabel = {
+    private lazy var menuIcon: UILabel = {
         let l = UILabel()
-        l.text = "MENU ⚙️"
-        l.textColor = .white
-        l.font = UIFont.systemFont(ofSize: 10, weight: .black)
+        l.text = "⚡"
+        l.font = UIFont.systemFont(ofSize: 22)
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
-    
-    // Crosshair Container
-    private lazy var espView: UIView = {
-        let v = UIView(frame: UIScreen.main.bounds)
-        v.backgroundColor = .clear
-        v.isUserInteractionEnabled = false
-        return v
-    }()
-    
-    private let espLayer = CAShapeLayer()
 
-    private lazy var debugLabel: UILabel = {
-        let l = UILabel(frame: CGRect(x: 10, y: 50, width: 300, height: 60))
-        l.textColor = .green
-        l.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        l.numberOfLines = 0
-        l.font = UIFont.systemFont(ofSize: 12)
-        l.text = "HoangHa Crosshair: Sẵn sàng"
-        l.isHidden = true
-        return l
-    }()
-    
-    // Mod Menu Panel
-    private lazy var menuPanel: UIView = {
+    // Main control panel
+    private lazy var panel: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(red: 15/255, green: 15/255, blue: 27/255, alpha: 0.95)
-        v.layer.cornerRadius = 16
+        v.backgroundColor = UIColor(red: 0.05, green: 0.05, blue: 0.12, alpha: 0.97)
+        v.layer.cornerRadius = 18
         v.layer.borderWidth = 1.5
-        v.layer.borderColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.9).cgColor
-        v.layer.shadowColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 0.6).cgColor
-        v.layer.shadowOpacity = 0.8
-        v.layer.shadowRadius = 12
+        v.layer.borderColor = UIColor(red: 0.2, green: 0.7, blue: 1.0, alpha: 0.8).cgColor
+        v.layer.shadowColor = UIColor(red: 0.2, green: 0.7, blue: 1.0, alpha: 0.5).cgColor
+        v.layer.shadowOpacity = 0.9
+        v.layer.shadowRadius = 15
         v.layer.shadowOffset = .zero
         v.translatesAutoresizingMaskIntoConstraints = false
         v.isHidden = true
         return v
     }()
-    
-    private lazy var titleBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor(red: 10/255, green: 10/255, blue: 18/255, alpha: 1.0)
-        v.layer.cornerRadius = 16
-        v.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-    
-    private lazy var titleLabel: UILabel = {
+
+    private lazy var panelTitle: UILabel = {
         let l = UILabel()
-        l.text = "🔥 HOANGHA CROSSHAIR 🔥"
-        l.textColor = UIColor(red: 255/255, green: 70/255, blue: 85/255, alpha: 1.0)
-        l.font = UIFont.systemFont(ofSize: 13, weight: .black)
+        l.text = "⚡ AUTO TOUCH"
+        l.textColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 1)
+        l.font = UIFont.systemFont(ofSize: 14, weight: .black)
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
-    
-    private lazy var closeButton: UIButton = {
+
+    private lazy var closeBtn: UIButton = {
         let b = UIButton(type: .system)
         b.setTitle("✕", for: .normal)
         b.setTitleColor(.white, for: .normal)
         b.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.addTarget(self, action: #selector(closeMenu), for: .touchUpInside)
+        b.addTarget(self, action: #selector(closePanel), for: .touchUpInside)
         return b
     }()
-    
-    private lazy var scrollView: UIScrollView = {
-        let sv = UIScrollView()
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
-    
-    private lazy var contentStackView: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .vertical
-        sv.spacing = 10
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
-    
-    private lazy var footerLabel: UILabel = {
+
+    // Status label
+    private lazy var statusLabel: UILabel = {
         let l = UILabel()
-        l.text = "🎯 Virtual Crosshair | Pure Overlay | Secure Window"
-        l.textColor = .green
-        l.font = UIFont.systemFont(ofSize: 9, weight: .semibold)
+        l.text = "📍 Thêm điểm để bắt đầu"
+        l.textColor = .lightGray
+        l.font = UIFont.systemFont(ofSize: 11, weight: .medium)
+        l.textAlignment = .center
+        l.numberOfLines = 2
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    // Point count display
+    private lazy var pointCountLabel: UILabel = {
+        let l = UILabel()
+        l.text = "0 điểm"
+        l.textColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 1)
+        l.font = UIFont.systemFont(ofSize: 28, weight: .black)
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
-    
-    func updateDebugText(_ text: String) {
-        DispatchQueue.main.async {
-            self.debugLabel.text = text
-        }
+
+    // Add point button
+    private lazy var addPointBtn: UIButton = makeActionButton(title: "➕  Thêm Điểm", color: UIColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 1))
+    private lazy var playBtn: UIButton = makeActionButton(title: "▶️  Chạy", color: UIColor(red: 0.1, green: 0.75, blue: 0.3, alpha: 1))
+    private lazy var stopBtn: UIButton = makeActionButton(title: "⏹  Dừng", color: UIColor(red: 0.8, green: 0.15, blue: 0.15, alpha: 1))
+    private lazy var clearBtn: UIButton = makeActionButton(title: "🗑  Xóa Tất Cả", color: UIColor(red: 0.4, green: 0.4, blue: 0.5, alpha: 1))
+
+    // Delay slider
+    private lazy var delayLabel: UILabel = {
+        let l = UILabel()
+        l.textColor = .white
+        l.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        updateDelayLabel(l)
+        return l
+    }()
+
+    private lazy var delaySlider: UISlider = {
+        let s = UISlider()
+        s.minimumValue = 50
+        s.maximumValue = 3000
+        s.value = Float(delayMs)
+        s.minimumTrackTintColor = UIColor(red: 0.2, green: 0.7, blue: 1.0, alpha: 1)
+        s.translatesAutoresizingMaskIntoConstraints = false
+        s.addTarget(self, action: #selector(delaySliderChanged(_:)), for: .valueChanged)
+        return s
+    }()
+
+    // Repeat count
+    private lazy var repeatLabel: UILabel = {
+        let l = UILabel()
+        l.textColor = .white
+        l.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        updateRepeatLabel(l)
+        return l
+    }()
+
+    private lazy var repeatStepper: UIStepper = {
+        let s = UIStepper()
+        s.minimumValue = 0
+        s.maximumValue = 999
+        s.value = 0
+        s.stepValue = 1
+        s.tintColor = UIColor(red: 0.2, green: 0.7, blue: 1.0, alpha: 1)
+        s.translatesAutoresizingMaskIntoConstraints = false
+        s.addTarget(self, action: #selector(repeatStepperChanged(_:)), for: .valueChanged)
+        return s
+    }()
+
+    // Add-mode overlay instruction
+    private lazy var addModeOverlay: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        v.isHidden = true
+        v.isUserInteractionEnabled = false
+        return v
+    }()
+
+    private lazy var addModeLabel: UILabel = {
+        let l = UILabel()
+        l.text = "✋ Nhấn vào màn hình để thêm điểm\nNhấn ➕ lần nữa để kết thúc"
+        l.textColor = .white
+        l.font = UIFont.systemFont(ofSize: 14, weight: .bold)
+        l.textAlignment = .center
+        l.numberOfLines = 2
+        l.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        l.layer.cornerRadius = 12
+        l.layer.masksToBounds = true
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    func updateDebugText(_ text: String) {}
+
+    // MARK: - Helper
+    private func makeActionButton(title: String, color: UIColor) -> UIButton {
+        let b = UIButton(type: .system)
+        b.setTitle(title, for: .normal)
+        b.setTitleColor(.white, for: .normal)
+        b.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .bold)
+        b.backgroundColor = color
+        b.layer.cornerRadius = 10
+        b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        b.translatesAutoresizingMaskIntoConstraints = false
+        return b
+    }
+
+    private func updateDelayLabel(_ label: UILabel? = nil) {
+        let l = label ?? delayLabel
+        l.text = "⏱ Delay: \(Int(delayMs))ms"
+    }
+
+    private func updateRepeatLabel(_ label: UILabel? = nil) {
+        let l = label ?? repeatLabel
+        l.text = repeatCount == 0 ? "🔁 Lặp: Vô tận" : "🔁 Lặp: \(repeatCount) lần"
     }
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        
-        loadSettings()
-        
-        // Setup Crosshair View & Layer
-        view.addSubview(espView)
-        espView.layer.addSublayer(espLayer)
-        
-        // Setup Menu Button
-        menuButton.delegate = self
-        view.addSubview(menuButton)
-        menuButton.addSubview(menuLabel)
-        
-        // Setup Debug Label
-        view.addSubview(debugLabel)
-        
-        // Setup Menu Panel
-        setupMenuPanel()
-        
-        // Align constraints for menu label
-        NSLayoutConstraint.activate([
-            menuLabel.centerXAnchor.constraint(equalTo: menuButton.centerXAnchor),
-            menuLabel.centerYAnchor.constraint(equalTo: menuButton.centerYAnchor)
-        ])
-        
-        // Load button position
-        let initialPos = OverlayWindowManager.shared.loadPosition()
-        menuButton.frame = CGRect(origin: initialPos, size: CGSize(width: 70, height: 50))
-        
-        // Rotation Notifications
+
+        setupAddModeOverlay()
+        setupMenuButton()
+        setupPanel()
+
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         NotificationCenter.default.addObserver(self, selector: #selector(handleRotation), name: UIDevice.orientationDidChangeNotification, object: nil)
-        
-        let observer = Unmanaged.passUnretained(self).toOpaque()
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, darwinNotificationCallback, "com.apple.springboard.rawOrientation" as CFString, nil, .deliverImmediately)
-        
-        handleRotation()
-        updateCrosshairDrawing()
+
+        let obs = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), obs, darwinNotificationCallback, "com.apple.springboard.rawOrientation" as CFString, nil, .deliverImmediately)
     }
-    
+
     deinit {
         NotificationCenter.default.removeObserver(self)
-        let observer = Unmanaged.passUnretained(self).toOpaque()
-        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer, CFNotificationName("com.apple.springboard.rawOrientation" as CFString), nil)
+        let obs = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), obs, CFNotificationName("com.apple.springboard.rawOrientation" as CFString), nil)
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
     }
-    
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        updateCrosshairDrawing()
-    }
-    
-    private func setupMenuPanel() {
-        view.addSubview(menuPanel)
-        menuPanel.addSubview(titleBar)
-        titleBar.addSubview(titleLabel)
-        titleBar.addSubview(closeButton)
-        menuPanel.addSubview(scrollView)
-        scrollView.addSubview(contentStackView)
-        menuPanel.addSubview(footerLabel)
-        
+
+    private func setupAddModeOverlay() {
+        addModeOverlay.frame = view.bounds
+        addModeOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(addModeOverlay)
+
+        view.addSubview(addModeLabel)
         NSLayoutConstraint.activate([
-            // Center the menu panel
-            menuPanel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            menuPanel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            menuPanel.widthAnchor.constraint(equalToConstant: 300),
-            menuPanel.heightAnchor.constraint(equalToConstant: 330),
-            
-            // Title Bar
-            titleBar.topAnchor.constraint(equalTo: menuPanel.topAnchor),
-            titleBar.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor),
-            titleBar.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor),
+            addModeLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            addModeLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30),
+            addModeLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
+            addModeLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30),
+            addModeLabel.heightAnchor.constraint(equalToConstant: 60)
+        ])
+    }
+
+    private func setupMenuButton() {
+        menuButton.delegate = self
+        view.addSubview(menuButton)
+        menuButton.addSubview(menuIcon)
+
+        NSLayoutConstraint.activate([
+            menuIcon.centerXAnchor.constraint(equalTo: menuButton.centerXAnchor),
+            menuIcon.centerYAnchor.constraint(equalTo: menuButton.centerYAnchor)
+        ])
+
+        let pos = OverlayWindowManager.shared.loadPosition()
+        menuButton.frame = CGRect(x: pos.x, y: pos.y, width: 52, height: 52)
+    }
+
+    private func setupPanel() {
+        view.addSubview(panel)
+
+        let titleBar = UIView()
+        titleBar.backgroundColor = UIColor(red: 0.03, green: 0.03, blue: 0.1, alpha: 1)
+        titleBar.layer.cornerRadius = 18
+        titleBar.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        titleBar.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(titleBar)
+
+        titleBar.addSubview(panelTitle)
+        titleBar.addSubview(closeBtn)
+
+        panel.addSubview(pointCountLabel)
+        panel.addSubview(statusLabel)
+
+        addPointBtn.addTarget(self, action: #selector(addPointTapped), for: .touchUpInside)
+        playBtn.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
+        stopBtn.addTarget(self, action: #selector(stopTapped), for: .touchUpInside)
+        clearBtn.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
+
+        let topRow = makeHStack([addPointBtn, playBtn])
+        let bottomRow = makeHStack([stopBtn, clearBtn])
+        panel.addSubview(topRow)
+        panel.addSubview(bottomRow)
+
+        // Delay row
+        let delayRow = makeHStack([delayLabel, delaySlider])
+        panel.addSubview(delayRow)
+
+        // Repeat row
+        let repeatRow = makeHStack([repeatLabel, repeatStepper])
+        panel.addSubview(repeatRow)
+
+        let footerLabel = UILabel()
+        footerLabel.text = "⚡ AutoTouch VIP — TrollStore"
+        footerLabel.textColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 0.7)
+        footerLabel.font = UIFont.systemFont(ofSize: 9, weight: .semibold)
+        footerLabel.textAlignment = .center
+        footerLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(footerLabel)
+
+        NSLayoutConstraint.activate([
+            panel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            panel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            panel.widthAnchor.constraint(equalToConstant: 300),
+
+            titleBar.topAnchor.constraint(equalTo: panel.topAnchor),
+            titleBar.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+            titleBar.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             titleBar.heightAnchor.constraint(equalToConstant: 44),
-            
-            titleLabel.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
-            
-            closeButton.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -12),
-            closeButton.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
-            
-            // Scroll View
-            scrollView.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor, constant: 12),
-            scrollView.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor, constant: -12),
-            scrollView.bottomAnchor.constraint(equalTo: footerLabel.topAnchor, constant: -8),
-            
-            // Content Stack View
-            contentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            contentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            contentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
-            
-            // Footer Label
-            footerLabel.bottomAnchor.constraint(equalTo: menuPanel.bottomAnchor, constant: -8),
-            footerLabel.leadingAnchor.constraint(equalTo: menuPanel.leadingAnchor),
-            footerLabel.trailingAnchor.constraint(equalTo: menuPanel.trailingAnchor),
-            footerLabel.heightAnchor.constraint(equalToConstant: 16)
+
+            panelTitle.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
+            panelTitle.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+
+            closeBtn.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -12),
+            closeBtn.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+
+            pointCountLabel.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 10),
+            pointCountLabel.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+
+            statusLabel.topAnchor.constraint(equalTo: pointCountLabel.bottomAnchor, constant: 4),
+            statusLabel.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            statusLabel.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+
+            topRow.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 12),
+            topRow.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            topRow.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+            topRow.heightAnchor.constraint(equalToConstant: 40),
+
+            bottomRow.topAnchor.constraint(equalTo: topRow.bottomAnchor, constant: 8),
+            bottomRow.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            bottomRow.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+            bottomRow.heightAnchor.constraint(equalToConstant: 40),
+
+            delayRow.topAnchor.constraint(equalTo: bottomRow.bottomAnchor, constant: 12),
+            delayRow.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            delayRow.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+            delayRow.heightAnchor.constraint(equalToConstant: 30),
+
+            repeatRow.topAnchor.constraint(equalTo: delayRow.bottomAnchor, constant: 10),
+            repeatRow.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 12),
+            repeatRow.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -12),
+            repeatRow.heightAnchor.constraint(equalToConstant: 36),
+
+            footerLabel.topAnchor.constraint(equalTo: repeatRow.bottomAnchor, constant: 10),
+            footerLabel.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+            footerLabel.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -10)
         ])
     }
-    
-    private func loadTabContent() {
-        contentStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        
-        // 1. Switch Row (Enable/Disable)
-        let enableRow = createSwitchRow(title: "Bật tâm ảo")
-        contentStackView.addArrangedSubview(enableRow)
-        
-        // 2. Segmented Row for Style (Dot, Cross, Circle, T-Shape, All)
-        let styleRow = createSegmentedRow(title: "Kiểu dáng", items: ["Dot", "Cross", "Circle", "T-Shape", "All"], selectedIndex: crosshairStyle, tag: 10)
-        contentStackView.addArrangedSubview(styleRow)
-        
-        // 3. Segmented Row for Color (Green, Red, Cyan, Yellow, White)
-        let colorRow = createSegmentedRow(title: "Màu sắc", items: ["Xanh", "Đỏ", "Lam", "Vàng", "Trắng"], selectedIndex: crosshairColorIndex, tag: 11)
-        contentStackView.addArrangedSubview(colorRow)
-        
-        // 4. Slider Row for Size
-        let sizeRow = createSliderRow(title: "Kích thước (Size)", minVal: 5, maxVal: 30, currentVal: Float(crosshairSize), tag: 1)
-        contentStackView.addArrangedSubview(sizeRow)
-        
-        // 5. Slider Row for Gap
-        let gapRow = createSliderRow(title: "Khoảng mở (Gap)", minVal: 0, maxVal: 25, currentVal: Float(crosshairGap), tag: 2)
-        contentStackView.addArrangedSubview(gapRow)
-        
-        // 6. Slider Row for Thickness
-        let thicknessRow = createSliderRow(title: "Độ dày (Thickness)", minVal: 1, maxVal: 6, currentVal: Float(crosshairThickness), tag: 3)
-        contentStackView.addArrangedSubview(thicknessRow)
-        
-        // 7. Slider Row for Dot Size
-        let dotSizeRow = createSliderRow(title: "Cỡ chấm (Dot Size)", minVal: 1, maxVal: 10, currentVal: Float(crosshairDotSize), tag: 4)
-        contentStackView.addArrangedSubview(dotSizeRow)
+
+    private func makeHStack(_ views: [UIView]) -> UIStackView {
+        let sv = UIStackView(arrangedSubviews: views)
+        sv.axis = .horizontal
+        sv.distribution = .fillEqually
+        sv.spacing = 8
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
     }
-    
-    private func createSwitchRow(title: String) -> UIView {
-        let row = UIView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        
-        let label = UILabel()
-        label.text = title
-        label.textColor = .white
-        label.font = UIFont.systemFont(ofSize: 13, weight: .bold)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(label)
-        
-        let sw = HackSwitch()
-        sw.hackTitle = title
-        sw.isOn = crosshairEnabled
-        sw.onTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
-        sw.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
-        sw.translatesAutoresizingMaskIntoConstraints = false
-        sw.addTarget(self, action: #selector(switchToggled(_:)), for: .valueChanged)
-        row.addSubview(sw)
-        
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
-            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            
-            sw.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
-            sw.centerYAnchor.constraint(equalTo: row.centerYAnchor)
-        ])
-        
-        return row
+
+    // MARK: - Touch interception for add-point mode
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isRecording, let touch = touches.first else { return }
+        let point = touch.location(in: view)
+
+        // Bỏ qua nếu chạm vào menu button hoặc panel
+        if menuButton.frame.contains(point) || (!panel.isHidden && panel.frame.contains(point)) {
+            return
+        }
+
+        addTouchPoint(at: point)
     }
-    
-    private func createSegmentedRow(title: String, items: [String], selectedIndex: Int, tag: Int) -> UIView {
-        let row = UIView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.heightAnchor.constraint(equalToConstant: 55).isActive = true
-        
-        let label = UILabel()
-        label.text = title
-        label.textColor = .white
-        label.font = UIFont.systemFont(ofSize: 12, weight: .bold)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(label)
-        
-        let seg = UISegmentedControl(items: items)
-        seg.selectedSegmentIndex = selectedIndex
-        seg.tag = tag
-        seg.selectedSegmentTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
-        
-        let normalTitleAttributes = [NSAttributedString.Key.foregroundColor: UIColor.white.withAlphaComponent(0.6)]
-        let selectedTitleAttributes = [NSAttributedString.Key.foregroundColor: UIColor.white]
-        seg.setTitleTextAttributes(normalTitleAttributes, for: .normal)
-        seg.setTitleTextAttributes(selectedTitleAttributes, for: .selected)
-        seg.backgroundColor = UIColor(white: 0.15, alpha: 1.0)
-        seg.translatesAutoresizingMaskIntoConstraints = false
-        seg.addTarget(self, action: #selector(segmentChanged(_:)), for: .valueChanged)
-        row.addSubview(seg)
-        
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
-            label.topAnchor.constraint(equalTo: row.topAnchor, constant: 4),
-            
-            seg.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
-            seg.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
-            seg.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -4)
-        ])
-        
-        return row
-    }
-    
-    private func createSliderRow(title: String, minVal: Float, maxVal: Float, currentVal: Float, tag: Int) -> UIView {
-        let row = UIView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.heightAnchor.constraint(equalToConstant: 50).isActive = true
-        
-        let label = UILabel()
-        label.text = title
-        label.textColor = .white
-        label.font = UIFont.systemFont(ofSize: 12, weight: .bold)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(label)
-        
-        let slider = UISlider()
-        slider.minimumValue = minVal
-        slider.maximumValue = maxVal
-        slider.value = currentVal
-        slider.tag = tag
-        slider.minimumTrackTintColor = UIColor(red: 157/255, green: 106/255, blue: 250/255, alpha: 1.0)
-        slider.translatesAutoresizingMaskIntoConstraints = false
-        slider.addTarget(self, action: #selector(sliderChanged(_:)), for: .valueChanged)
-        row.addSubview(slider)
-        
-        let valLabel = UILabel()
-        valLabel.text = String(format: "%.1f", Double(currentVal))
-        valLabel.textColor = .lightGray
-        valLabel.font = UIFont.systemFont(ofSize: 11)
-        valLabel.textAlignment = .right
-        valLabel.translatesAutoresizingMaskIntoConstraints = false
-        valLabel.tag = tag + 100
-        row.addSubview(valLabel)
-        
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
-            label.topAnchor.constraint(equalTo: row.topAnchor, constant: 4),
-            
-            valLabel.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
-            valLabel.centerYAnchor.constraint(equalTo: label.centerYAnchor),
-            valLabel.widthAnchor.constraint(equalToConstant: 40),
-            
-            slider.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
-            slider.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
-            slider.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -4)
-        ])
-        
-        return row
+
+    // MARK: - Add point
+    private func addTouchPoint(at point: CGPoint) {
+        let idx = touchPoints.count + 1
+        let tp = TouchPoint(position: point, order: idx)
+        touchPoints.append(tp)
+
+        let marker = PointMarkerView(at: point, index: idx)
+        markerViews.append(marker)
+        view.insertSubview(marker, belowSubview: menuButton)
+
+        // Animate in
+        marker.alpha = 0
+        marker.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+        UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.8) {
+            marker.alpha = 1
+            marker.transform = .identity
+        }
+
+        updateUI()
     }
 
     // MARK: - Actions
-    @objc private func switchToggled(_ sender: HackSwitch) {
-        crosshairEnabled = sender.isOn
-        saveSettings()
-        updateCrosshairDrawing()
-    }
-    
-    @objc private func segmentChanged(_ sender: UISegmentedControl) {
-        if sender.tag == 10 {
-            crosshairStyle = sender.selectedSegmentIndex
-        } else if sender.tag == 11 {
-            crosshairColorIndex = sender.selectedSegmentIndex
+    @objc private func addPointTapped() {
+        isRecording.toggle()
+        if isRecording {
+            // Enter add mode
+            closePanel()
+            addModeOverlay.isHidden = false
+            addModeLabel.isHidden = false
+            addModeOverlay.isUserInteractionEnabled = false // Let touches through to self
+            view.bringSubviewToFront(addModeLabel)
+            view.bringSubviewToFront(menuButton)
+        } else {
+            // Exit add mode
+            addModeOverlay.isHidden = true
+            addModeLabel.isHidden = true
         }
-        saveSettings()
-        updateCrosshairDrawing()
+        updateUI()
     }
-    
-    @objc private func sliderChanged(_ sender: UISlider) {
-        let val = CGFloat(sender.value)
-        if sender.tag == 1 {
-            crosshairSize = val
-        } else if sender.tag == 2 {
-            crosshairGap = val
-        } else if sender.tag == 3 {
-            crosshairThickness = val
-        } else if sender.tag == 4 {
-            crosshairDotSize = val
+
+    @objc private func playTapped() {
+        guard !touchPoints.isEmpty else {
+            statusLabel.text = "⚠️ Chưa có điểm nào!"
+            return
         }
-        
-        if let valLabel = contentStackView.viewWithTag(sender.tag + 100) as? UILabel {
-            valLabel.text = String(format: "%.1f", Double(val))
-        }
-        
-        saveSettings()
-        updateCrosshairDrawing()
+        guard !isPlaying else { return }
+        stopPlaying()
+        isPlaying = true
+        currentPlayIndex = 0
+        currentRepeat = 0
+        closePanel()
+        startPlayback()
+        updateUI()
     }
-    
-    @objc private func closeMenu() {
+
+    @objc private func stopTapped() {
+        stopPlaying()
+        updateUI()
+    }
+
+    @objc private func clearTapped() {
+        stopPlaying()
+        touchPoints.removeAll()
+        markerViews.forEach { $0.removeFromSuperview() }
+        markerViews.removeAll()
+        updateUI()
+    }
+
+    @objc private func closePanel() {
+        guard !panel.isHidden else { return }
         UIView.animate(withDuration: 0.2, animations: {
-            self.menuPanel.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
-            self.menuPanel.alpha = 0.0
+            self.panel.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            self.panel.alpha = 0
         }) { _ in
-            self.menuPanel.isHidden = true
+            self.panel.isHidden = true
+            self.panel.transform = .identity
         }
     }
 
-    // MARK: - Drawing Logic
-    private func updateCrosshairDrawing() {
-        espLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
-        
-        guard crosshairEnabled else { return }
-        
-        let center = CGPoint(x: espView.bounds.midX, y: espView.bounds.midY)
-        let path = UIBezierPath()
-        let color = getCrosshairColor()
-        
-        let size = crosshairSize
-        let gap = crosshairGap
-        let thickness = crosshairThickness
-        let dotSize = crosshairDotSize
-        
-        // 1. Draw Dot (Styles: Dot=0, Combine/All=4, T-Shape=3)
-        if crosshairStyle == 0 || crosshairStyle == 4 || crosshairStyle == 3 {
-            let dotPath = UIBezierPath(arcCenter: center, radius: dotSize, startAngle: 0, endAngle: .pi * 2, clockwise: true)
-            let dotLayer = CAShapeLayer()
-            dotLayer.path = dotPath.cgPath
-            dotLayer.fillColor = color.cgColor
-            espLayer.addSublayer(dotLayer)
-        }
-        
-        // 2. Draw Classic Cross Lines (Styles: Cross=1, Combine/All=4)
-        if crosshairStyle == 1 || crosshairStyle == 4 {
-            // North
-            path.move(to: CGPoint(x: center.x, y: center.y - gap - size))
-            path.addLine(to: CGPoint(x: center.x, y: center.y - gap))
-            
-            // South
-            path.move(to: CGPoint(x: center.x, y: center.y + gap))
-            path.addLine(to: CGPoint(x: center.x, y: center.y + gap + size))
-            
-            // West
-            path.move(to: CGPoint(x: center.x - gap - size, y: center.y))
-            path.addLine(to: CGPoint(x: center.x - gap, y: center.y))
-            
-            // East
-            path.move(to: CGPoint(x: center.x + gap, y: center.y))
-            path.addLine(to: CGPoint(x: center.x + gap + size, y: center.y))
-        }
-        
-        // 3. Draw Circle (Styles: Circle=2, Combine/All=4)
-        if crosshairStyle == 2 || crosshairStyle == 4 {
-            let circlePath = UIBezierPath(arcCenter: center, radius: gap + (size / 2.0), startAngle: 0, endAngle: .pi * 2, clockwise: true)
-            let circleLayer = CAShapeLayer()
-            circleLayer.path = circlePath.cgPath
-            circleLayer.strokeColor = color.cgColor
-            circleLayer.fillColor = UIColor.clear.cgColor
-            circleLayer.lineWidth = thickness
-            espLayer.addSublayer(circleLayer)
-        }
-        
-        // 4. Draw T-Shape Lines (Style: T-Shape=3)
-        if crosshairStyle == 3 {
-            // South
-            path.move(to: CGPoint(x: center.x, y: center.y + gap))
-            path.addLine(to: CGPoint(x: center.x, y: center.y + gap + size))
-            
-            // West
-            path.move(to: CGPoint(x: center.x - gap - size, y: center.y))
-            path.addLine(to: CGPoint(x: center.x - gap, y: center.y))
-            
-            // East
-            path.move(to: CGPoint(x: center.x + gap, y: center.y))
-            path.addLine(to: CGPoint(x: center.x + gap + size, y: center.y))
-        }
-        
-        if !path.isEmpty {
-            let shape = CAShapeLayer()
-            shape.path = path.cgPath
-            shape.strokeColor = color.cgColor
-            shape.fillColor = UIColor.clear.cgColor
-            shape.lineWidth = thickness
-            shape.lineCap = .round
-            espLayer.addSublayer(shape)
-        }
+    @objc private func delaySliderChanged(_ sender: UISlider) {
+        delayMs = Double(sender.value)
+        updateDelayLabel()
     }
-    
-    private func getCrosshairColor() -> UIColor {
-        switch crosshairColorIndex {
-        case 0: return .green
-        case 1: return .red
-        case 2: return .cyan
-        case 3: return .yellow
-        case 4: return .white
-        default: return .green
+
+    @objc private func repeatStepperChanged(_ sender: UIStepper) {
+        repeatCount = Int(sender.value)
+        updateRepeatLabel()
+    }
+
+    // MARK: - Playback
+    private func startPlayback() {
+        guard isPlaying, currentPlayIndex < touchPoints.count else {
+            // End of sequence
+            currentRepeat += 1
+            if repeatCount == 0 || currentRepeat < repeatCount {
+                // Loop
+                currentPlayIndex = 0
+                scheduleNextTap()
+            } else {
+                stopPlaying()
+                updateUI()
+            }
+            return
+        }
+
+        let tp = touchPoints[currentPlayIndex]
+        let marker = currentPlayIndex < markerViews.count ? markerViews[currentPlayIndex] : nil
+
+        // Animate marker
+        marker?.animateActive()
+
+        // Inject touch
+        TouchInjector.shared.sendTap(at: tp.position)
+
+        currentPlayIndex += 1
+
+        scheduleNextTap()
+    }
+
+    private func scheduleNextTap() {
+        guard isPlaying else { return }
+        let delay = delayMs / 1000.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.startPlayback()
         }
     }
 
-    // MARK: - Settings Persistence
-    private func loadSettings() {
-        crosshairEnabled = UserDefaults.standard.object(forKey: "cross_enabled") as? Bool ?? true
-        crosshairStyle = UserDefaults.standard.integer(forKey: "cross_style")
-        crosshairColorIndex = UserDefaults.standard.integer(forKey: "cross_color_index")
-        
-        if let savedSize = UserDefaults.standard.object(forKey: "cross_size") as? Double {
-            crosshairSize = CGFloat(savedSize)
-        } else {
-            crosshairSize = 12
-        }
-        
-        if let savedGap = UserDefaults.standard.object(forKey: "cross_gap") as? Double {
-            crosshairGap = CGFloat(savedGap)
-        } else {
-            crosshairGap = 5
-        }
-        
-        if let savedThickness = UserDefaults.standard.object(forKey: "cross_thickness") as? Double {
-            crosshairThickness = CGFloat(savedThickness)
-        } else {
-            crosshairThickness = 1.5
-        }
-        
-        if let savedDotSize = UserDefaults.standard.object(forKey: "cross_dot_size") as? Double {
-            crosshairDotSize = CGFloat(savedDotSize)
-        } else {
-            crosshairDotSize = 2.0
-        }
+    private func stopPlaying() {
+        isPlaying = false
+        playTimer?.invalidate()
+        playTimer = nil
     }
-    
-    private func saveSettings() {
-        UserDefaults.standard.set(crosshairEnabled, forKey: "cross_enabled")
-        UserDefaults.standard.set(crosshairStyle, forKey: "cross_style")
-        UserDefaults.standard.set(crosshairColorIndex, forKey: "cross_color_index")
-        UserDefaults.standard.set(Double(crosshairSize), forKey: "cross_size")
-        UserDefaults.standard.set(Double(crosshairGap), forKey: "cross_gap")
-        UserDefaults.standard.set(Double(crosshairThickness), forKey: "cross_thickness")
-        UserDefaults.standard.set(Double(crosshairDotSize), forKey: "cross_dot_size")
-        UserDefaults.standard.synchronize()
+
+    // MARK: - UI Update
+    private func updateUI() {
+        let count = touchPoints.count
+        pointCountLabel.text = "\(count) điểm"
+
+        if isPlaying {
+            statusLabel.text = "⚡ Đang chạy... [\(currentPlayIndex)/\(count)]"
+            addPointBtn.isEnabled = false
+            playBtn.isEnabled = false
+            stopBtn.isEnabled = true
+        } else if isRecording {
+            statusLabel.text = "📍 Nhấn vào màn hình để thêm điểm \(count + 1)"
+            addPointBtn.setTitle("✅  Xong", for: .normal)
+            addPointBtn.backgroundColor = UIColor(red: 0.1, green: 0.75, blue: 0.3, alpha: 1)
+        } else {
+            addPointBtn.setTitle("➕  Thêm Điểm", for: .normal)
+            addPointBtn.backgroundColor = UIColor(red: 0.1, green: 0.6, blue: 1.0, alpha: 1)
+            addPointBtn.isEnabled = true
+            playBtn.isEnabled = count > 0
+            stopBtn.isEnabled = false
+
+            if count == 0 {
+                statusLabel.text = "📍 Nhấn ➕ để thêm điểm chạm"
+            } else {
+                statusLabel.text = "✅ \(count) điểm • Nhấn ▶️ để chạy"
+            }
+        }
     }
 
     // MARK: - DraggableViewDelegate
     func didTap(view: DraggableView) {
-        let isOpen = !menuPanel.isHidden
-        if isOpen {
-            closeMenu()
+        if isRecording {
+            // Exit record mode first
+            addPointTapped()
+            return
+        }
+        if panel.isHidden {
+            panel.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            panel.alpha = 0
+            panel.isHidden = false
+            UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.8) {
+                self.panel.transform = .identity
+                self.panel.alpha = 1
+            }
+            updateUI()
         } else {
-            self.menuPanel.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
-            self.menuPanel.alpha = 0.0
-            self.menuPanel.isHidden = false
-            UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut, animations: {
-                self.menuPanel.transform = .identity
-                self.menuPanel.alpha = 1.0
-            }, completion: nil)
-            loadTabContent()
+            closePanel()
         }
     }
-    
+
     func didDrag(view: DraggableView, to center: CGPoint) {
         let s = self.view.bounds.size
         var c = center
@@ -656,49 +653,24 @@ class OverlayViewController: UIViewController, DraggableViewDelegate {
         c.y = max(menuButton.bounds.height / 2, min(c.y, s.height - menuButton.bounds.height / 2))
         menuButton.center = c
     }
-    
+
     func didEndDrag(view: DraggableView) {
         OverlayWindowManager.shared.savePosition(menuButton.frame.origin)
     }
-    
+
+    // MARK: - Rotation
     @objc func handleRotation() {
         let rawOrientation = globalGetDeviceOrientation?() ?? 0
         let orientation = UIDeviceOrientation(rawValue: rawOrientation) ?? .unknown
-        
         var angle: CGFloat = 0
-        var isLandscape = false
-        
         switch orientation {
-        case .landscapeLeft:
-            angle = .pi / 2
-            isLandscape = true
-        case .landscapeRight:
-            angle = -.pi / 2
-            isLandscape = true
-        case .portraitUpsideDown:
-            angle = .pi
-            isLandscape = false
-        default:
-            angle = 0
-            isLandscape = false
+        case .landscapeLeft:  angle = .pi / 2
+        case .landscapeRight: angle = -.pi / 2
+        case .portraitUpsideDown: angle = .pi
+        default: angle = 0
         }
-        
         UIView.animate(withDuration: 0.3) {
             self.view.transform = CGAffineTransform(rotationAngle: angle)
-            
-            let s = UIScreen.main.bounds.size
-            var c = self.menuButton.center
-            c.x = max(self.menuButton.bounds.width / 2, min(c.x, s.width - self.menuButton.bounds.width / 2))
-            c.y = max(self.menuButton.bounds.height / 2, min(c.y, s.height - self.menuButton.bounds.height / 2))
-            self.menuButton.center = c
-            
-            if isLandscape {
-                self.espView.frame = CGRect(x: 0, y: 0, width: s.height, height: s.width)
-            } else {
-                self.espView.frame = CGRect(x: 0, y: 0, width: s.width, height: s.height)
-            }
-            
-            self.updateCrosshairDrawing()
         }
     }
 }

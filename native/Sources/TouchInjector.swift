@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreFoundation
 
 // MARK: - TouchInjector
 // Dùng dlopen/dlsym để gọi IOHIDEvent private API tại runtime.
@@ -32,7 +33,7 @@ class TouchInjector {
     ) -> CFTypeRef?
 
     typealias SetDigitizerInfoFn = @convention(c) (
-        CFTypeRef, UInt32, UInt8, UInt8, CFStringRef?, Double, Float
+        CFTypeRef, UInt32, UInt8, UInt8, CFString?, Double, Float
     ) -> Void
 
     // MARK: - Loaded functions
